@@ -1,0 +1,13 @@
+{
+  "files": {
+    "main.css": "/transport_invoices/static/css/main.884e51f7.css",
+    "main.js": "/transport_invoices/static/js/main.28d86538.js",
+    "index.html": "/transport_invoices/index.html",
+    "main.884e51f7.css.map": "/transport_invoices/static/css/main.884e51f7.css.map",
+    "main.28d86538.js.map": "/transport_invoices/static/js/main.28d86538.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.884e51f7.css",
+    "static/js/main.28d86538.js"
+  ]
+}
