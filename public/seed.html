@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SafeStorage - Load Seed Data</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: system-ui, sans-serif; background: #f0f2f5; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+        .card { background: white; border-radius: 16px; padding: 40px; max-width: 600px; width: 90%; box-shadow: 0 4px 24px rgba(0,0,0,0.1); }
+        h1 { font-size: 22px; margin-bottom: 8px; color: #1a237e; }
+        .sub { color: #666; font-size: 14px; margin-bottom: 24px; }
+        .stats { background: #f8f9fa; border-radius: 10px; padding: 16px; margin-bottom: 20px; font-size: 13px; }
+        .stats .row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #eee; }
+        .stats .row:last-child { border: none; }
+        .stats .label { color: #666; }
+        .stats .value { font-weight: 600; color: #1a73e8; }
+        .stats .total { font-size: 15px; color: #1a237e; font-weight: 700; }
+        .btn { display: block; width: 100%; padding: 14px; font-size: 16px; font-weight: 600; border: none; border-radius: 10px; cursor: pointer; margin-top: 12px; transition: all 0.2s; }
+        .btn-primary { background: #1a73e8; color: white; }
+        .btn-primary:hover { background: #1557b0; }
+        .btn-danger { background: #d93025; color: white; }
+        .btn-danger:hover { background: #b3261e; }
+        .btn-secondary { background: #e8eaed; color: #333; }
+        .btn-secondary:hover { background: #dadce0; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .log { background: #1a1a2e; color: #0f0; border-radius: 10px; padding: 16px; margin-top: 16px; font-family: monospace; font-size: 12px; max-height: 200px; overflow-y: auto; display: none; }
+        .log.show { display: block; }
+        .warning { background: #fef7e0; border: 1px solid #f9ab00; border-radius: 8px; padding: 12px; margin-bottom: 16px; font-size: 13px; color: #b06000; }
+        .success { background: #e6f4ea; border: 1px solid #34a853; border-radius: 8px; padding: 12px; margin-top: 16px; font-size: 14px; color: #137333; font-weight: 500; display: none; }
+    </style>
+</head>
+<body>
+<div class="card">
+    <h1>SafeStorage - Data Loader</h1>
+    <p class="sub">Load vendor bills data from Vendor_bills_10_feb.xlsx into the app</p>
+
+    <div class="warning">
+        This will replace all existing data in the app. Make sure to backup first if needed.
+    </div>
+
+    <div class="stats" id="statsBox">
+        <div style="text-align:center; padding: 20px; color: #999;">Loading seed data...</div>
+    </div>
+
+    <button class="btn btn-primary" id="loadBtn" disabled onclick="loadData()">Load All Data</button>
+    <button class="btn btn-danger" id="clearBtn" onclick="clearData()">Clear All Data</button>
+    <button class="btn btn-secondary" onclick="window.location.href='/transport_invoices/'">Go to Dashboard</button>
+
+    <div class="log" id="log"></div>
+    <div class="success" id="successMsg">Data loaded successfully! Go to Dashboard to view.</div>
+</div>
+
+<script>
+let seedData = null;
+
+const STORAGE_KEYS = {
+    TRANSPORT: 'accounts_transport',
+    GENERAL: 'accounts_general',
+    PACKING: 'accounts_packing',
+    PETTY_CASH: 'accounts_petty',
+    HAPPY_CARD: 'accounts_happy',
+    REFUNDS: 'accounts_refunds',
+    DRIVE_TRACK: 'accounts_drive',
+    REVIEWS: 'accounts_reviews',
+};
+
+const KEY_LABELS = {
+    accounts_general: 'General Bills',
+    accounts_transport: 'Transport Bills',
+    accounts_packing: 'Packing Materials',
+    accounts_petty: 'Petty Cash',
+    accounts_refunds: 'Damage Refunds',
+    accounts_happy: 'Happay Card',
+    accounts_drive: 'Drive Track & Porter',
+    accounts_reviews: 'Reviews',
+};
+
+function log(msg) {
+    const el = document.getElementById('log');
+    el.classList.add('show');
+    el.innerHTML += msg + '\n';
+    el.scrollTop = el.scrollHeight;
+}
+
+function fmt(n) {
+    return new Intl.NumberFormat('en-IN').format(n);
+}
+
+async function init() {
+    try {
+        const resp = await fetch('seed-data.json');
+        if (!resp.ok) throw new Error('seed-data.json not found. Run: python3 seed_data.py first');
+        seedData = await resp.json();
+
+        let total = 0;
+        let html = '';
+        for (const [key, label] of Object.entries(KEY_LABELS)) {
+            const count = seedData[key]?.length || 0;
+            total += count;
+            const existing = JSON.parse(localStorage.getItem(key) || '[]').length;
+            html += `<div class="row">
+                <span class="label">${label}</span>
+                <span class="value">${fmt(count)} records ${existing ? '(current: ' + existing + ')' : ''}</span>
+            </div>`;
+        }
+        html += `<div class="row"><span class="total">Total</span><span class="total">${fmt(total)} records</span></div>`;
+        document.getElementById('statsBox').innerHTML = html;
+        document.getElementById('loadBtn').disabled = false;
+    } catch (err) {
+        document.getElementById('statsBox').innerHTML = `<div style="color:red;padding:12px;">${err.message}</div>`;
+    }
+}
+
+function loadData() {
+    if (!seedData) return;
+    if (!confirm('This will replace ALL existing data. Continue?')) return;
+
+    const btn = document.getElementById('loadBtn');
+    btn.disabled = true;
+    btn.textContent = 'Loading...';
+
+    log('Starting data load...');
+
+    let totalLoaded = 0;
+    for (const [key, label] of Object.entries(KEY_LABELS)) {
+        const data = seedData[key] || [];
+        try {
+            localStorage.setItem(key, JSON.stringify(data));
+            log(`  ✓ ${label}: ${data.length} records loaded`);
+            totalLoaded += data.length;
+        } catch (err) {
+            log(`  ✗ ${label}: ERROR - ${err.message}`);
+        }
+    }
+
+    // Set app version
+    localStorage.setItem('ACCOUNTS_APP_VERSION', '2.0.0');
+    log(`\nTotal: ${totalLoaded} records loaded`);
+    log('App version set to 2.0.0');
+    log('\nDone! Navigate to the dashboard to view data.');
+
+    btn.textContent = 'Data Loaded!';
+    document.getElementById('successMsg').style.display = 'block';
+
+    // Refresh stats
+    init();
+}
+
+function clearData() {
+    if (!confirm('Clear ALL app data? This cannot be undone.')) return;
+    Object.values(STORAGE_KEYS).forEach(key => localStorage.removeItem(key));
+    localStorage.removeItem('accounts_audit');
+    localStorage.removeItem('accounts_filters');
+    localStorage.removeItem('accounts_user');
+    log('All data cleared.');
+    init();
+}
+
+init();
+</script>
+</body>
+</html>

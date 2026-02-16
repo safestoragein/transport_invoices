@@ -1,19 +1,23 @@
 {
   "name": "transport-invoices",
-  "version": "0.1.0",
+  "version": "2.0.0",
   "private": true,
-  "homepage": "https://safestoragein.github.io/transport_invoices",
+  "homepage": "/",
   "dependencies": {
+    "@supabase/supabase-js": "^2.95.3",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "react-router-dom": "^7.10.1",
-    "react-scripts": "5.0.1"
+    "react-scripts": "5.0.1",
+    "xlsx": "^0.18.5"
   },
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
+    "generate-data": "node scripts/generate-data.js",
+    "seed": "node scripts/seed-supabase.js",
     "predeploy": "npm run build",
     "deploy": "gh-pages -d build"
   },
@@ -33,6 +37,9 @@
     ]
   },
   "devDependencies": {
-    "gh-pages": "^6.3.0"
+    "autoprefixer": "^10.4.17",
+    "gh-pages": "^6.3.0",
+    "postcss": "^8.4.35",
+    "tailwindcss": "^3.4.1"
   }
 }

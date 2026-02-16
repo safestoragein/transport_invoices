@@ -6,8 +6,10 @@ function Login({ onLogin }) {
   const [error, setError] = useState('');
 
   const users = {
-    admin: { password: 'admin123', role: 'admin' },
-    user: { password: 'user123', role: 'user' }
+    uploader: { password: 'upload123', role: 'uploader' },
+    manager: { password: 'manager123', role: 'manager' },
+    accounts: { password: 'accounts123', role: 'accounts' },
+    admin: { password: 'admin123', role: 'admin' }
   };
 
   const handleSubmit = (e) => {
@@ -60,11 +62,7 @@ function Login({ onLogin }) {
           </button>
         </form>
 
-        <div className="login-footer">
-          <p><strong>Demo Credentials:</strong></p>
-          <p>Admin: admin / admin123</p>
-          <p>User: user / user123</p>
-        </div>
+        {/* Credentials section removed */}
       </div>
     </div>
   );
