@@ -1,0 +1,4 @@
+-- Add TDS (Tax Deducted at Source) fields to bills table
+ALTER TABLE bills ADD COLUMN IF NOT EXISTS tds_percentage NUMERIC DEFAULT 0;
+ALTER TABLE bills ADD COLUMN IF NOT EXISTS tds_amount NUMERIC DEFAULT 0;
+ALTER TABLE bills ADD COLUMN IF NOT EXISTS net_payable NUMERIC DEFAULT 0;

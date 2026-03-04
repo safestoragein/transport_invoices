@@ -217,7 +217,7 @@ const DataTable = ({
 
       {/* Pagination */}
       {paginate && data.length > 0 && (
-        <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 bg-gray-50">
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 border-t border-gray-200 bg-gray-50">
           <div className="flex items-center gap-2 text-sm text-gray-600">
             <span>Show</span>
             <select
@@ -235,13 +235,13 @@ const DataTable = ({
               ))}
             </select>
             <span>entries</span>
-            <span className="mx-2">|</span>
-            <span>
-              Showing {((currentPage - 1) * pageSize) + 1} to {Math.min(currentPage * pageSize, data.length)} of {data.length} entries
+            <span className="hidden sm:inline mx-2">|</span>
+            <span className="hidden sm:inline">
+              Showing {((currentPage - 1) * pageSize) + 1} to {Math.min(currentPage * pageSize, data.length)} of {data.length}
             </span>
           </div>
 
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 flex-shrink-0">
             <button
               onClick={() => handlePageChange(1)}
               disabled={currentPage === 1}

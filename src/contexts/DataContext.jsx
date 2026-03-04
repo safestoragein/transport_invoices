@@ -1,23 +1,20 @@
 import React, { createContext, useContext, useEffect, useCallback, useState } from 'react';
 import { useAuth } from './AuthContext';
 import { useAudit } from './AuditContext';
-import { STATUS_VALUES, AUDIT_ACTIONS } from '../utils/constants';
-import { calculateProfitLoss, generateId } from '../utils/calculations';
+import { STATUS_VALUES, AUDIT_ACTIONS, isValidTransition } from '../utils/constants';
+import { calculateTransportFields, calculatePaymentStatus, calculateGroupTotals, generateId } from '../utils/calculations';
+import { canEditBill, validateDuplicateInvoice, validatePaymentAmount } from '../utils/validators';
 import * as supabaseService from '../services/supabaseService';
 
 const DataContext = createContext(null);
 
-/**
- * Data Provider - All module data with CRUD + approval operations
- * Backed by Supabase (single "bills" table, split by module column)
- */
 export const DataProvider = ({ children }) => {
   const { user } = useAuth();
   const { logAction } = useAudit();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Module data arrays (populated from Supabase on mount)
+  // Module data arrays
   const [transportInvoices, setTransportInvoices] = useState([]);
   const [generalBills, setGeneralBills] = useState([]);
   const [packingMaterials, setPackingMaterials] = useState([]);
@@ -27,7 +24,10 @@ export const DataProvider = ({ children }) => {
   const [driveTrackPorter, setDriveTrackPorter] = useState([]);
   const [reviews, setReviews] = useState([]);
 
-  // Map module key -> [state, setter]
+  // New: Transport groups and bill payments
+  const [transportGroups, setTransportGroups] = useState([]);
+  const [billPayments, setBillPayments] = useState([]);
+
   const getModuleState = useCallback((module) => {
     const map = {
       transport: [transportInvoices, setTransportInvoices],
@@ -42,32 +42,27 @@ export const DataProvider = ({ children }) => {
     return map[module] || null;
   }, [transportInvoices, generalBills, packingMaterials, pettyCash, happyCard, refunds, driveTrackPorter, reviews]);
 
-  // ============ Fetch all data on mount ============
+  // Load all data on mount
   useEffect(() => {
     let cancelled = false;
 
     async function loadData() {
       try {
-        const allBills = await supabaseService.fetchAllBills();
+        const [allBills, groups, payments] = await Promise.all([
+          supabaseService.fetchAllBills(),
+          supabaseService.fetchTransportGroups().catch(() => []),
+          supabaseService.fetchAllPayments().catch(() => []),
+        ]);
 
         if (cancelled) return;
 
-        // Split by module
         const buckets = {
-          transport: [],
-          general: [],
-          packing: [],
-          petty: [],
-          happy: [],
-          refunds: [],
-          drive: [],
-          reviews: [],
+          transport: [], general: [], packing: [], petty: [],
+          happy: [], refunds: [], drive: [], reviews: [],
         };
 
         allBills.forEach((bill) => {
-          if (buckets[bill.module]) {
-            buckets[bill.module].push(bill);
-          }
+          if (buckets[bill.module]) buckets[bill.module].push(bill);
         });
 
         setTransportInvoices(buckets.transport);
@@ -78,6 +73,8 @@ export const DataProvider = ({ children }) => {
         setRefunds(buckets.refunds);
         setDriveTrackPorter(buckets.drive);
         setReviews(buckets.reviews);
+        setTransportGroups(groups);
+        setBillPayments(payments);
         setError(null);
       } catch (err) {
         console.error('Failed to load data from Supabase:', err);
@@ -93,48 +90,51 @@ export const DataProvider = ({ children }) => {
 
   // ============ Generic CRUD Operations ============
 
-  /**
-   * Create a new entry in a module
-   */
   const createEntry = useCallback(async (module, data) => {
     const moduleState = getModuleState(module);
-    if (!moduleState) {
-      console.error(`Unknown module: ${module}`);
-      return null;
-    }
-    const [, setItems] = moduleState;
+    if (!moduleState) return null;
+    const [items, setItems] = moduleState;
 
-    // Calculate P/L for transport invoices
+    // Duplicate invoice check
+    const invoiceNum = data.invoiceNumber || data.invoiceNo;
+    if (invoiceNum) {
+      const allItems = getAllEntries();
+      const dupError = validateDuplicateInvoice(invoiceNum, allItems);
+      if (dupError) {
+        throw new Error(dupError);
+      }
+    }
+
     let entryData = { ...data };
+
+    // Calculate transport fields
     if (module === 'transport') {
-      entryData.profitLoss = calculateProfitLoss(
-        data.receivedAmount,
-        data.packingMaterial,
-        data.invoiceAmount
-      );
+      const calc = calculateTransportFields(data);
+      entryData = { ...entryData, ...calc };
     }
 
-    // Add default status — new entries go to pending_approval
+    const now = new Date().toISOString();
     const newEntry = {
       ...entryData,
       id: generateId(),
       status: STATUS_VALUES.PENDING_APPROVAL,
+      managerApproval: 'pending',
+      paymentStatus: entryData.paymentStatus || 'Pending',
       submittedBy: user?.username || 'system',
-      submittedAt: new Date().toISOString(),
+      submittedAt: now,
+      createdAt: now,
+      updatedAt: now,
     };
 
-    // Optimistic update
     setItems((prev) => [...prev, newEntry]);
 
     try {
       await supabaseService.insertBill(module, newEntry);
     } catch (err) {
-      console.error('Supabase insert failed, rolling back:', err);
       setItems((prev) => prev.filter((item) => item.id !== newEntry.id));
-      return null;
+      throw err;
     }
 
-    // Log audit
     logAction({
       action: AUDIT_ACTIONS.CREATE,
       module,
@@ -144,56 +144,55 @@ export const DataProvider = ({ children }) => {
     });
 
     return newEntry;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, getModuleState, logAction]);
 
-  /**
-   * Update an entry in a module
-   */
   const updateEntry = useCallback(async (module, id, updates) => {
     const moduleState = getModuleState(module);
-    if (!moduleState) {
-      console.error(`Unknown module: ${module}`);
-      return null;
-    }
+    if (!moduleState) return null;
     const [items, setItems] = moduleState;
 
     const previousValue = items.find((item) => item.id === id);
-    if (!previousValue) {
-      console.error(`Entry not found: ${id}`);
-      return null;
+    if (!previousValue) return null;
+
+    // Prevent edit after PAYMENT_DONE
+    if (!canEditBill(previousValue)) {
+      throw new Error('Cannot edit a bill after payment is completed');
     }
 
-    // Calculate P/L for transport invoices if amounts changed
+    // Duplicate invoice check on update
+    const invoiceNum = updates.invoiceNumber || updates.invoiceNo;
+    if (invoiceNum) {
+      const allItems = getAllEntries();
+      const dupError = validateDuplicateInvoice(invoiceNum, allItems, id);
+      if (dupError) {
+        throw new Error(dupError);
+      }
+    }
+
     let entryUpdates = { ...updates };
+
+    // Recalculate transport fields if amounts changed
     if (module === 'transport' &&
-        (updates.receivedAmount !== undefined ||
-         updates.packingMaterial !== undefined ||
-         updates.invoiceAmount !== undefined)) {
-      entryUpdates.profitLoss = calculateProfitLoss(
-        updates.receivedAmount ?? previousValue.receivedAmount,
-        updates.packingMaterial ?? previousValue.packingMaterial,
-        updates.invoiceAmount ?? previousValue.invoiceAmount
-      );
+        (updates.receivedAmount !== undefined || updates.packingMaterial !== undefined ||
+         updates.invoiceAmount !== undefined || updates.tdsPercentage !== undefined ||
+         updates.tdsApplicable !== undefined || updates.penaltyAmount !== undefined)) {
+      const mergedData = { ...previousValue, ...updates };
+      const calc = calculateTransportFields(mergedData);
+      entryUpdates = { ...entryUpdates, ...calc };
     }
 
     const updatedEntry = { ...previousValue, ...entryUpdates, updatedAt: new Date().toISOString() };
 
-    // Optimistic update
-    setItems((prev) =>
-      prev.map((item) => (item.id === id ? updatedEntry : item))
-    );
+    setItems((prev) => prev.map((item) => (item.id === id ? updatedEntry : item)));
 
     try {
       await supabaseService.updateBill(id, entryUpdates);
     } catch (err) {
-      console.error('Supabase update failed, rolling back:', err);
-      setItems((prev) =>
-        prev.map((item) => (item.id === id ? previousValue : item))
-      );
-      return null;
+      setItems((prev) => prev.map((item) => (item.id === id ? previousValue : item)));
+      throw err;
     }
 
-    // Log audit
     logAction({
       action: AUDIT_ACTIONS.UPDATE,
       module,
@@ -202,19 +201,13 @@ export const DataProvider = ({ children }) => {
       newValue: updatedEntry,
       changes: Object.entries(entryUpdates)
         .filter(([key, value]) => previousValue[key] !== value)
-        .map(([key, value]) => ({
-          field: key,
-          from: previousValue[key],
-          to: value,
-        })),
+        .map(([key, value]) => ({ field: key, from: previousValue[key], to: value })),
     });
 
     return updatedEntry;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [getModuleState, logAction]);
 
-  /**
-   * Delete an entry from a module
-   */
   const deleteEntry = useCallback(async (module, id) => {
     const moduleState = getModuleState(module);
     if (!moduleState) return false;
@@ -223,18 +216,19 @@ export const DataProvider = ({ children }) => {
     const previousValue = items.find((item) => item.id === id);
     if (!previousValue) return false;
 
-    // Optimistic update
+    if (!canEditBill(previousValue)) {
+      throw new Error('Cannot delete a bill after payment is completed');
+    }
+
     setItems((prev) => prev.filter((item) => item.id !== id));
 
     try {
       await supabaseService.deleteBill(id);
     } catch (err) {
-      console.error('Supabase delete failed, rolling back:', err);
       setItems((prev) => [...prev, previousValue]);
       return false;
     }
 
-    // Log audit
     logAction({
       action: AUDIT_ACTIONS.DELETE,
       module,
@@ -249,8 +243,7 @@ export const DataProvider = ({ children }) => {
   // ============ Approval Workflow Operations ============
 
   /**
-   * Approve an entry (admin only)
-   * Sets status to 'approved' (awaiting payment)
+   * Approve an entry: PENDING_APPROVAL → READY_FOR_UPLOAD
    */
   const approveEntry = useCallback(async (module, id, notes = '') => {
     const moduleState = getModuleState(module);
@@ -260,27 +253,31 @@ export const DataProvider = ({ children }) => {
     const entry = items.find((item) => item.id === id);
     if (!entry) return false;
 
+    // Validate transition
+    if (!isValidTransition(entry.status, STATUS_VALUES.READY_FOR_UPLOAD)) {
+      console.error(`Invalid transition from ${entry.status} to ${STATUS_VALUES.READY_FOR_UPLOAD}`);
+      return false;
+    }
+
+    const now = new Date().toISOString();
     const updates = {
       notes,
-      status: STATUS_VALUES.APPROVED,
+      status: STATUS_VALUES.READY_FOR_UPLOAD,
       approvedBy: user?.username,
-      approvalDate: new Date().toISOString(),
+      approvalDate: now,
+      approvalTimestamp: now,
+      managerApproval: 'approved',
+      managerApprovedBy: user?.username,
+      managerApprovalDate: now,
     };
 
-    const updatedEntry = { ...entry, ...updates, updatedAt: new Date().toISOString() };
-
-    // Optimistic update
-    setItems((prev) =>
-      prev.map((item) => (item.id === id ? updatedEntry : item))
-    );
+    const updatedEntry = { ...entry, ...updates, updatedAt: now };
+    setItems((prev) => prev.map((item) => (item.id === id ? updatedEntry : item)));
 
     try {
       await supabaseService.updateBill(id, updates);
     } catch (err) {
-      console.error('Supabase approve failed, rolling back:', err);
-      setItems((prev) =>
-        prev.map((item) => (item.id === id ? entry : item))
-      );
+      setItems((prev) => prev.map((item) => (item.id === id ? entry : item)));
       return false;
     }
 
@@ -290,15 +287,14 @@ export const DataProvider = ({ children }) => {
       recordId: id,
       previousValue: entry,
       newValue: updatedEntry,
-      details: 'Admin approved entry',
+      details: `Approved by ${user?.username}`,
     });
 
     return true;
   }, [user, getModuleState, logAction]);
 
   /**
-   * Reject an entry (admin only)
-   * Sets status to 'rejected' with notes
+   * Reject an entry
    */
   const rejectEntry = useCallback(async (module, id, notes = '') => {
     const moduleState = getModuleState(module);
@@ -308,27 +304,24 @@ export const DataProvider = ({ children }) => {
     const entry = items.find((item) => item.id === id);
     if (!entry) return false;
 
+    const now = new Date().toISOString();
     const updates = {
       notes,
       status: STATUS_VALUES.REJECTED,
       rejectedBy: user?.username,
-      rejectionDate: new Date().toISOString(),
+      rejectionDate: now,
+      managerApproval: 'rejected',
+      managerApprovedBy: user?.username,
+      managerApprovalDate: now,
     };
 
-    const updatedEntry = { ...entry, ...updates, updatedAt: new Date().toISOString() };
-
-    // Optimistic update
-    setItems((prev) =>
-      prev.map((item) => (item.id === id ? updatedEntry : item))
-    );
+    const updatedEntry = { ...entry, ...updates, updatedAt: now };
+    setItems((prev) => prev.map((item) => (item.id === id ? updatedEntry : item)));
 
     try {
       await supabaseService.updateBill(id, updates);
     } catch (err) {
-      console.error('Supabase reject failed, rolling back:', err);
-      setItems((prev) =>
-        prev.map((item) => (item.id === id ? entry : item))
-      );
+      setItems((prev) => prev.map((item) => (item.id === id ? entry : item)));
       return false;
     }
 
@@ -338,15 +331,62 @@ export const DataProvider = ({ children }) => {
       recordId: id,
       previousValue: entry,
       newValue: updatedEntry,
-      details: 'Admin rejected entry',
+      details: `Rejected by ${user?.username}`,
     });
 
     return true;
   }, [user, getModuleState, logAction]);
 
   /**
-   * Mark entry as paid (accounts or admin)
-   * Accepts paymentMode ('Bank' or 'Cashfree'), sets status to 'closed'
+   * Upload for payment: READY_FOR_UPLOAD → UPLOADED_TO_BANK
+   */
+  const uploadForPayment = useCallback(async (module, id) => {
+    const moduleState = getModuleState(module);
+    if (!moduleState) return false;
+    const [items, setItems] = moduleState;
+
+    const entry = items.find((item) => item.id === id);
+    if (!entry) return false;
+
+    if (!isValidTransition(entry.status, STATUS_VALUES.UPLOADED_TO_BANK)) {
+      console.error(`Invalid transition from ${entry.status} to ${STATUS_VALUES.UPLOADED_TO_BANK}`);
+      return false;
+    }
+
+    const now = new Date().toISOString();
+    const updates = {
+      status: STATUS_VALUES.UPLOADED_TO_BANK,
+      paymentStatus: 'Uploaded',
+      uploadedBy: user?.username || 'system',
+      uploadedTimestamp: now,
+      uploadedForPaymentBy: user?.username || 'system',
+      uploadedForPaymentDate: now,
+    };
+
+    const updatedEntry = { ...entry, ...updates, updatedAt: now };
+    setItems((prev) => prev.map((item) => (item.id === id ? updatedEntry : item)));
+
+    try {
+      await supabaseService.updateBill(id, updates);
+    } catch (err) {
+      setItems((prev) => prev.map((item) => (item.id === id ? entry : item)));
+      return false;
+    }
+
+    logAction({
+      action: AUDIT_ACTIONS.UPLOAD_FOR_PAYMENT,
+      module,
+      recordId: id,
+      previousValue: entry,
+      newValue: updatedEntry,
+      details: `Uploaded for payment via ${entry.paymentMode || 'unknown'}`,
+    });
+
+    return true;
+  }, [user, getModuleState, logAction]);
+
+  /**
+   * Mark as paid: UPLOADED_TO_BANK → PAYMENT_DONE
    */
   const markAsPaid = useCallback(async (module, id, paymentMode) => {
     const moduleState = getModuleState(module);
@@ -356,27 +396,28 @@ export const DataProvider = ({ children }) => {
     const entry = items.find((item) => item.id === id);
     if (!entry) return false;
 
+    if (!isValidTransition(entry.status, STATUS_VALUES.PAYMENT_DONE)) {
+      console.error(`Invalid transition from ${entry.status} to ${STATUS_VALUES.PAYMENT_DONE}`);
+      return false;
+    }
+
+    const now = new Date().toISOString();
     const updates = {
-      status: STATUS_VALUES.CLOSED,
+      status: STATUS_VALUES.PAYMENT_DONE,
+      paymentStatus: 'Payment done',
       paymentMode,
-      paymentCompletedDate: new Date().toISOString(),
-      paymentCompletedBy: user.username,
+      paymentDate: now,
+      paymentCompletedDate: now,
+      paymentCompletedBy: user?.username || 'system',
     };
 
-    const updatedEntry = { ...entry, ...updates, updatedAt: new Date().toISOString() };
-
-    // Optimistic update
-    setItems((prev) =>
-      prev.map((item) => (item.id === id ? updatedEntry : item))
-    );
+    const updatedEntry = { ...entry, ...updates, updatedAt: now };
+    setItems((prev) => prev.map((item) => (item.id === id ? updatedEntry : item)));
 
     try {
       await supabaseService.updateBill(id, updates);
     } catch (err) {
-      console.error('Supabase markAsPaid failed, rolling back:', err);
-      setItems((prev) =>
-        prev.map((item) => (item.id === id ? entry : item))
-      );
+      setItems((prev) => prev.map((item) => (item.id === id ? entry : item)));
       return false;
     }
 
@@ -392,14 +433,203 @@ export const DataProvider = ({ children }) => {
     return true;
   }, [user, getModuleState, logAction]);
 
+  /**
+   * Put entry on hold
+   */
+  const putOnHold = useCallback(async (module, id, notes = '') => {
+    const moduleState = getModuleState(module);
+    if (!moduleState) return false;
+    const [items, setItems] = moduleState;
+
+    const entry = items.find((item) => item.id === id);
+    if (!entry) return false;
+
+    const updates = {
+      status: STATUS_VALUES.ON_HOLD,
+      notes: notes || entry.notes,
+    };
+
+    const updatedEntry = { ...entry, ...updates, updatedAt: new Date().toISOString() };
+    setItems((prev) => prev.map((item) => (item.id === id ? updatedEntry : item)));
+
+    try {
+      await supabaseService.updateBill(id, updates);
+    } catch (err) {
+      setItems((prev) => prev.map((item) => (item.id === id ? entry : item)));
+      return false;
+    }
+
+    logAction({
+      action: AUDIT_ACTIONS.UPDATE,
+      module,
+      recordId: id,
+      previousValue: entry,
+      newValue: updatedEntry,
+      details: 'Entry put on hold',
+    });
+
+    return true;
+  }, [getModuleState, logAction]);
+
+  // ============ Bill Payments Operations ============
+
+  /**
+   * Add a payment to a bill (multiple payments support)
+   */
+  const addPayment = useCallback(async (billId, paymentData) => {
+    // Find the bill across all modules
+    const allItems = getAllEntries();
+    const bill = allItems.find(item => item.id === billId);
+    if (!bill) throw new Error('Bill not found');
+
+    // Get existing payments for this bill
+    const existingPayments = billPayments.filter(p => p.billId === billId);
+    const finalPayable = Number(bill.finalPayable) || Number(bill.payableAmount) || Number(bill.amount) || 0;
+    const totalPaid = existingPayments.reduce((sum, p) => sum + (Number(p.paymentAmount) || 0), 0);
+
+    // Validate payment amount (prevent overpayment)
+    const validationError = validatePaymentAmount(paymentData.paymentAmount, finalPayable, totalPaid);
+    if (validationError) throw new Error(validationError);
+
+    const payment = {
+      paymentId: generateId(),
+      billId,
+      paymentAmount: Number(paymentData.paymentAmount),
+      paymentDate: paymentData.paymentDate || new Date().toISOString(),
+      paymentReference: paymentData.paymentReference || '',
+      paymentMode: paymentData.paymentMode || bill.paymentMode,
+      createdBy: user?.username || 'system',
+      notes: paymentData.notes || '',
+    };
+
+    // Optimistic update
+    setBillPayments(prev => [payment, ...prev]);
+
+    try {
+      await supabaseService.insertBillPayment(payment);
+    } catch (err) {
+      setBillPayments(prev => prev.filter(p => p.paymentId !== payment.paymentId));
+      throw err;
+    }
+
+    // Recalculate payment status
+    const newTotalPaid = totalPaid + payment.paymentAmount;
+    const { paymentStatus } = calculatePaymentStatus(finalPayable, [...existingPayments, payment]);
+
+    // Update bill payment status (but NOT profit_loss)
+    const moduleState = getModuleState(bill.module);
+    if (moduleState) {
+      const [, setItems] = moduleState;
+      setItems(prev => prev.map(item =>
+        item.id === billId ? { ...item, paymentStatus } : item
+      ));
+      await supabaseService.updateBill(billId, { paymentStatus }).catch(() => {});
+    }
+
+    logAction({
+      action: AUDIT_ACTIONS.ADD_PAYMENT,
+      module: bill.module,
+      recordId: billId,
+      newValue: payment,
+      details: `Payment of ${payment.paymentAmount} added. Total paid: ${newTotalPaid}`,
+    });
+
+    return payment;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [billPayments, user, getModuleState, logAction]);
+
+  /**
+   * Get payments for a specific bill
+   */
+  const getPaymentsForBill = useCallback((billId) => {
+    return billPayments.filter(p => p.billId === billId);
+  }, [billPayments]);
+
+  // ============ Transport Groups Operations ============
+
+  const createTransportGroup = useCallback(async (groupData) => {
+    const group = {
+      groupId: generateId(),
+      groupName: groupData.groupName,
+      vendorName: groupData.vendorName,
+      weekStart: groupData.weekStart,
+      weekEnd: groupData.weekEnd,
+      totalReceived: 0,
+      totalPackingMaterial: 0,
+      totalInvoiceAmount: 0,
+      totalTds: 0,
+      totalPenalty: 0,
+      totalFinalPayable: 0,
+      totalProfit: 0,
+      createdBy: user?.username || 'system',
+    };
+
+    setTransportGroups(prev => [group, ...prev]);
+
+    try {
+      await supabaseService.insertTransportGroup(group);
+    } catch (err) {
+      setTransportGroups(prev => prev.filter(g => g.groupId !== group.groupId));
+      throw err;
+    }
+
+    return group;
+  }, [user]);
+
+  const assignToGroup = useCallback(async (billId, groupId) => {
+    const bill = transportInvoices.find(b => b.id === billId);
+    if (!bill) return false;
+
+    const prev = bill.weeklyGroupId;
+    setTransportInvoices(items => items.map(item =>
+      item.id === billId ? { ...item, weeklyGroupId: groupId } : item
+    ));
+
+    try {
+      await supabaseService.updateBill(billId, { weeklyGroupId: groupId });
+    } catch (err) {
+      setTransportInvoices(items => items.map(item =>
+        item.id === billId ? { ...item, weeklyGroupId: prev } : item
+      ));
+      return false;
+    }
+
+    // Recalculate group totals
+    recalculateGroupTotals(groupId);
+    if (prev) recalculateGroupTotals(prev);
+
+    return true;
+  }, [transportInvoices]);
+
+  const recalculateGroupTotals = useCallback(async (groupId) => {
+    const groupInvoices = transportInvoices.filter(inv => inv.weeklyGroupId === groupId);
+    const totals = calculateGroupTotals(groupInvoices);
+
+    setTransportGroups(prev => prev.map(g =>
+      g.groupId === groupId ? { ...g, ...totals } : g
+    ));
+
+    await supabaseService.updateTransportGroup(groupId, totals).catch(() => {});
+  }, [transportInvoices]);
+
   // ============ Bulk Operations ============
 
-  const bulkApprove = useCallback((module, ids, notes = '') => {
-    ids.forEach(id => approveEntry(module, id, notes));
+  const bulkApprove = useCallback(async (module, ids, notes = '') => {
+    let failed = 0;
+    for (const id of ids) {
+      const result = await approveEntry(module, id, notes);
+      if (!result) failed++;
+    }
+    return { total: ids.length, failed };
   }, [approveEntry]);
 
-  const bulkReject = useCallback((module, ids, notes = '') => {
-    ids.forEach(id => rejectEntry(module, id, notes));
+  const bulkReject = useCallback(async (module, ids, notes = '') => {
+    let failed = 0;
+    for (const id of ids) {
+      const result = await rejectEntry(module, id, notes);
+      if (!result) failed++;
+    }
+    return { total: ids.length, failed };
   }, [rejectEntry]);
 
   /**
@@ -430,6 +660,9 @@ export const DataProvider = ({ children }) => {
     refunds,
     driveTrackPorter,
     reviews,
+    // New data
+    transportGroups,
+    billPayments,
     // CRUD operations
     createEntry,
     updateEntry,
@@ -438,8 +671,17 @@ export const DataProvider = ({ children }) => {
     approveEntry,
     rejectEntry,
     markAsPaid,
+    uploadForPayment,
+    putOnHold,
     bulkApprove,
     bulkReject,
+    // Payment operations
+    addPayment,
+    getPaymentsForBill,
+    // Group operations
+    createTransportGroup,
+    assignToGroup,
+    recalculateGroupTotals,
     // Utilities
     getAllEntries,
   };
@@ -451,9 +693,6 @@ export const DataProvider = ({ children }) => {
   );
 };
 
-/**
- * Hook to use data context
- */
 export const useData = () => {
   const context = useContext(DataContext);
   if (!context) {

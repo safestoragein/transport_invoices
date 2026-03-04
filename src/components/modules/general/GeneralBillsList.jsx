@@ -1,14 +1,15 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useData } from '../../../contexts/DataContext';
 import { useToast } from '../../../contexts/ToastContext';
 import { useFilters, useExcel, useForm } from '../../../hooks';
 import { DataTable, Button, StatusBadge, FormModal, FilterBar, FormField, Select, FormRow } from '../../common';
+import { ApprovalBadge } from '../../common/Badge';
 import InvoiceUpload from '../../common/InvoiceUpload';
 import { StatCard, StatCardGrid } from '../../common/StatCard';
 import { HistoryModal } from '../../audit/HistoryPanel';
 import { formatCurrency, formatDate } from '../../../utils/formatters';
-import { calculateModuleStats } from '../../../utils/calculations';
-import { PAYMENT_STATUS } from '../../../utils/constants';
+import { calculateModuleStats, calculateTDS } from '../../../utils/calculations';
+import { PAYMENT_STATUS, PAYMENT_MODES } from '../../../utils/constants';
 import { uploadInvoiceFile, getInvoiceFileUrl } from '../../../services/fileUploadService';
 
 const GeneralBillForm = ({ initialData, onSubmit, onCancel, loading }) => {
@@ -21,6 +22,7 @@ const GeneralBillForm = ({ initialData, onSubmit, onCancel, loading }) => {
     if (!values.invoiceNo?.trim()) errors.invoiceNo = 'Invoice number is required';
     if (!values.invoiceDate) errors.invoiceDate = 'Invoice date is required';
     if (!values.payableAmount && values.payableAmount !== 0) errors.payableAmount = 'Amount is required';
+    if (!values.paymentMode) errors.paymentMode = 'Payment mode is required';
     return errors;
   };
 
@@ -30,7 +32,12 @@ const GeneralBillForm = ({ initialData, onSubmit, onCancel, loading }) => {
       invoiceNo: '',
       invoiceDate: '',
       month: '',
+      paymentMode: '',
+      dueDate: '',
       payableAmount: '',
+      tdsPercentage: '',
+      tdsAmount: '',
+      netPayable: '',
       paymentStatus: PAYMENT_STATUS.PENDING,
       uploadedDate: '',
       approvedBy: '',
@@ -54,6 +61,9 @@ const GeneralBillForm = ({ initialData, onSubmit, onCancel, loading }) => {
         onSubmit({
           ...data,
           payableAmount: parseFloat(data.payableAmount) || 0,
+          tdsPercentage: parseFloat(data.tdsPercentage) || 0,
+          tdsAmount: parseFloat(data.tdsAmount) || 0,
+          netPayable: parseFloat(data.netPayable) || 0,
           attachmentUrl,
         });
       },
@@ -68,6 +78,14 @@ const GeneralBillForm = ({ initialData, onSubmit, onCancel, loading }) => {
     if (data.invoiceAmount) updates.payableAmount = data.invoiceAmount;
     if (Object.keys(updates).length > 0) setMultipleValues(updates);
   };
+
+  // Auto-calculate TDS when payable amount or TDS percentage changes
+  useEffect(() => {
+    const amount = parseFloat(values.payableAmount) || 0;
+    const tdsPct = parseFloat(values.tdsPercentage) || 0;
+    const { tdsAmount, netPayable } = calculateTDS(amount, tdsPct);
+    setMultipleValues({ tdsAmount: tdsAmount.toFixed(2), netPayable: netPayable.toFixed(2) });
+  }, [values.payableAmount, values.tdsPercentage, setMultipleValues]);
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -116,6 +134,30 @@ const GeneralBillForm = ({ initialData, onSubmit, onCancel, loading }) => {
         />
       </FormRow>
       <FormRow columns={2}>
+        <Select
+          label="Payment Mode"
+          name="paymentMode"
+          value={values.paymentMode}
+          onChange={handleChange}
+          options={[
+            { value: '', label: 'Select Payment Mode' },
+            { value: PAYMENT_MODES.IDFC_BANK, label: 'IDFC Bank' },
+            { value: PAYMENT_MODES.CASHFREE, label: 'Cashfree' },
+          ]}
+          error={getFieldError('paymentMode')}
+          required
+        />
+        <FormField
+          label="Due Date"
+          name="dueDate"
+          type="date"
+          value={values.dueDate}
+          onChange={handleChange}
+          onBlur={handleBlur}
+          error={getFieldError('dueDate')}
+        />
+      </FormRow>
+      <FormRow columns={2}>
         <FormField
           label="Payable Amount (₹)"
           name="payableAmount"
@@ -133,6 +175,36 @@ const GeneralBillForm = ({ initialData, onSubmit, onCancel, loading }) => {
           onChange={handleChange}
           options={Object.values(PAYMENT_STATUS).map(s => ({ value: s, label: s }))}
         />
+      </FormRow>
+      <FormRow columns={3}>
+        <FormField
+          label="TDS %"
+          name="tdsPercentage"
+          type="number"
+          value={values.tdsPercentage}
+          onChange={handleChange}
+          onBlur={handleBlur}
+          placeholder="0"
+          step="0.01"
+          min="0"
+          max="100"
+        />
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            TDS Amount (₹) <span className="text-xs text-gray-500">(Auto)</span>
+          </label>
+          <div className="w-full px-4 py-3 border rounded-lg bg-gray-50 border-gray-200 text-gray-700 font-semibold">
+            {formatCurrency(parseFloat(values.tdsAmount) || 0, false)}
+          </div>
+        </div>
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Net Payable (₹) <span className="text-xs text-gray-500">(Auto)</span>
+          </label>
+          <div className="w-full px-4 py-3 border rounded-lg bg-primary-50 border-primary-200 text-primary-700 font-semibold">
+            {formatCurrency(parseFloat(values.netPayable) || 0, false)}
+          </div>
+        </div>
       </FormRow>
       <div className="flex justify-end gap-3 pt-4">
         <Button type="button" variant="secondary" onClick={onCancel}>Cancel</Button>
@@ -166,18 +238,24 @@ const GeneralBillsList = () => {
     { key: 'invoiceNo', header: 'Invoice #' },
     { key: 'invoiceDate', header: 'Date', render: (v) => formatDate(v) },
     { key: 'payableAmount', header: 'Amount', render: (v) => formatCurrency(v) },
+    { key: 'tdsPercentage', header: 'TDS %', render: (v) => v > 0 ? `${v}%` : '-' },
+    { key: 'netPayable', header: 'Net Payable', render: (v) => v > 0 ? formatCurrency(v) : '-' },
+    { key: 'paymentMode', header: 'Payment Mode' },
     { key: 'paymentStatus', header: 'Payment', render: (v) => <StatusBadge status={v} /> },
-    { key: 'status', header: 'Status', render: (v) => <StatusBadge status={v} /> },
+    { key: 'approvedBy', header: 'Approved By' },
+    { key: 'approvedDate', header: 'Approved Date' },
+    { key: 'uploadedDate', header: 'Uploaded Date' },
+    { key: 'managerApproval', header: 'Approval', render: (v) => <ApprovalBadge status={v} /> },
   ];
 
   const handleSubmit = async (data) => {
     setLoading(true);
     try {
       if (editingItem) {
-        updateEntry('general', editingItem.id, data);
+        await updateEntry('general', editingItem.id, data);
         success('Bill updated successfully');
       } else {
-        createEntry('general', data);
+        await createEntry('general', data);
         success('Bill submitted successfully');
       }
       setShowForm(false);
@@ -205,12 +283,12 @@ const GeneralBillsList = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">General Bills</h1>
           <p className="text-sm text-gray-500 mt-1">Manage general bills and payments</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-shrink-0">
           <Button variant="secondary" onClick={() => exportToExcel(filteredData)} loading={exporting}>Export</Button>
           <Button variant="primary" onClick={() => setShowForm(true)}>+ New Bill</Button>
         </div>
@@ -228,6 +306,17 @@ const GeneralBillsList = () => {
           { name: 'search', type: 'text', label: 'Search' },
           { name: 'dateRange', type: 'dateRange', label: 'Date' },
           { name: 'vendor', type: 'select', label: 'Vendor', options: getUniqueValues('vendorName').map(v => ({ value: v, label: v })) },
+          { name: 'paymentStatus', type: 'select', label: 'Payment Status', options: [
+            { value: 'Pending', label: 'Pending' },
+            { value: 'Payment done', label: 'Paid' },
+            { value: 'Hold', label: 'Hold' },
+            { value: 'partially pending', label: 'Partially Pending' },
+          ]},
+          { name: 'managerApproval', type: 'select', label: 'Approval', options: [
+            { value: 'pending', label: 'Pending' },
+            { value: 'approved', label: 'Approved' },
+            { value: 'rejected', label: 'Rejected' },
+          ]},
         ]}
         values={filters}
         onChange={(f) => Object.entries(f).forEach(([k, v]) => updateFilter(k, v))}

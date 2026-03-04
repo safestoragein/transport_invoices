@@ -40,10 +40,14 @@ const CAMEL_TO_SNAKE = {
   receivedAmount: 'received_amount',
   packingMaterial: 'packing_material',
   profitLoss: 'profit_loss',
+  profitLossType: 'profit_loss_type',
   invoiceNo: 'invoice_no',
   uploadedDate: 'uploaded_date',
   approvedBy: 'approved_by',
   submissionStatus: 'submission_status',
+  materials: 'materials',
+  bankStatus: 'bank_status',
+  approvedDate: 'approved_date',
   customerId: 'customer_id',
   customerName: 'customer_name',
   refundAmount: 'refund_amount',
@@ -74,8 +78,32 @@ const MODULES = [
   { module: 'reviews', file: 'reviews.json' },
 ];
 
+/**
+ * Detect which columns exist in the bills table by reading one row.
+ * Returns a Set of known column names, or null if detection fails.
+ */
+async function detectColumns() {
+  const { data, error } = await supabase.from('bills').select('*').limit(1);
+  if (error) return null;
+  if (data && data.length > 0) return new Set(Object.keys(data[0]));
+  return null; // table is empty, can't detect — will try inserting as-is
+}
+
 async function seed() {
   console.log('Starting Supabase seed...\n');
+
+  // Detect existing columns before clearing
+  const knownCols = await detectColumns();
+  if (knownCols) {
+    console.log(`Detected ${knownCols.size} columns in bills table.`);
+    const newCols = ['materials', 'bank_status', 'approved_date'].filter(c => !knownCols.has(c));
+    if (newCols.length > 0) {
+      console.warn(`\n  WARNING: Missing columns: ${newCols.join(', ')}`);
+      console.warn('  Run this SQL in Supabase SQL Editor to add them:');
+      newCols.forEach(c => console.warn(`    ALTER TABLE bills ADD COLUMN IF NOT EXISTS ${c} text DEFAULT '';`));
+      console.warn('  These columns will be stripped from seed data for now.\n');
+    }
+  }
 
   // Clear existing data
   console.log('Clearing existing bills...');
@@ -115,6 +143,12 @@ async function seed() {
       for (const col of NUMERIC_COLS) {
         if (row[col] === '' || row[col] === ' ') {
           row[col] = null;
+        }
+      }
+      // Strip columns not in DB schema (if detected)
+      if (knownCols) {
+        for (const key of Object.keys(row)) {
+          if (!knownCols.has(key)) delete row[key];
         }
       }
       return row;

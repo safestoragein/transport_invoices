@@ -36,22 +36,29 @@ const USERS = {
     role: ROLES.ACCOUNTS,
     displayName: 'Srikanth'
   },
-  // Admin
+  // IDFC Bank Approver
   ramesh: {
     passwordHash: hashPassword('Ramesh@2026'),
-    role: ROLES.ADMIN,
+    role: ROLES.IDFC_APPROVER,
     displayName: 'Ramesh'
   },
-  // Viewers
+  // Cashfree Approver
   anush: {
     passwordHash: hashPassword('Anush@2026'),
-    role: ROLES.VIEWER,
+    role: ROLES.CASHFREE_APPROVER,
     displayName: 'Anush'
   },
+  // Viewers
   harsha: {
     passwordHash: hashPassword('Harsha@2026'),
     role: ROLES.VIEWER,
     displayName: 'Harsha'
+  },
+  // Admin superuser
+  admin: {
+    passwordHash: hashPassword('Admin@2026'),
+    role: ROLES.ADMIN,
+    displayName: 'Admin'
   },
 };
 

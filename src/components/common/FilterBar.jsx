@@ -129,21 +129,19 @@ const FilterBar = ({
       case 'dateRange':
         const dateValue = value || { start: '', end: '' };
         return (
-          <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row gap-2">
             <input
               type="date"
-              placeholder="Start date"
               value={dateValue.start || ''}
               onChange={(e) => handleChange(filter.name, { ...dateValue, start: e.target.value })}
-              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-200 focus:border-primary-500"
+              className="w-full sm:flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-200 focus:border-primary-500"
             />
-            <span className="flex items-center text-gray-400">to</span>
+            <span className="hidden sm:flex items-center text-gray-400 text-xs flex-shrink-0">to</span>
             <input
               type="date"
-              placeholder="End date"
               value={dateValue.end || ''}
               onChange={(e) => handleChange(filter.name, { ...dateValue, end: e.target.value })}
-              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-200 focus:border-primary-500"
+              className="w-full sm:flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-200 focus:border-primary-500"
             />
           </div>
         );
@@ -151,21 +149,21 @@ const FilterBar = ({
       case 'amountRange':
         const amountValue = value || { min: '', max: '' };
         return (
-          <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row gap-2">
             <input
               type="number"
               placeholder="Min"
               value={amountValue.min || ''}
               onChange={(e) => handleChange(filter.name, { ...amountValue, min: e.target.value })}
-              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-200 focus:border-primary-500"
+              className="w-full sm:flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-200 focus:border-primary-500"
             />
-            <span className="flex items-center text-gray-400">to</span>
+            <span className="hidden sm:flex items-center text-gray-400 text-xs flex-shrink-0">to</span>
             <input
               type="number"
               placeholder="Max"
               value={amountValue.max || ''}
               onChange={(e) => handleChange(filter.name, { ...amountValue, max: e.target.value })}
-              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-200 focus:border-primary-500"
+              className="w-full sm:flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-200 focus:border-primary-500"
             />
           </div>
         );
@@ -176,41 +174,46 @@ const FilterBar = ({
   };
 
   return (
-    <div className={`bg-white rounded-lg shadow-card ${className}`}>
+    <div className={`bg-white rounded-lg shadow-card overflow-hidden ${className}`}>
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-        <div className="flex items-center gap-2">
-          <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <div
+        className="flex items-center justify-between px-4 py-3 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors"
+        onClick={() => collapsible && setIsExpanded(!isExpanded)}
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <svg className="w-5 h-5 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
           </svg>
           <span className="font-medium text-gray-700">Filters</span>
           {activeFilterCount > 0 && (
-            <span className="bg-primary-100 text-primary-700 text-xs font-medium px-2 py-0.5 rounded-full">
+            <span className="bg-primary-100 text-primary-700 text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0">
               {activeFilterCount} active
             </span>
           )}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-shrink-0">
           {showClearButton && hasActiveFilters && (
-            <Button variant="ghost" size="sm" onClick={handleClear}>
-              Clear All
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleClear();
+              }}
+            >
+              Clear
             </Button>
           )}
           {collapsible && (
-            <button
-              onClick={() => setIsExpanded(!isExpanded)}
-              className="p-1 rounded hover:bg-gray-100"
+            <svg
+              className={`w-5 h-5 text-gray-500 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
             >
-              <svg
-                className={`w-5 h-5 text-gray-500 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
           )}
         </div>
       </div>
@@ -218,10 +221,17 @@ const FilterBar = ({
       {/* Filter Fields */}
       {(!collapsible || isExpanded) && (
         <div className="p-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-4 gap-y-3">
             {filters.map((filter) => (
-              <div key={filter.name}>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+              <div
+                key={filter.name}
+                className={
+                  filter.type === 'dateRange' || filter.type === 'amountRange'
+                    ? 'sm:col-span-2 lg:col-span-1'
+                    : ''
+                }
+              >
+                <label className="block text-xs font-medium text-gray-500 mb-1 uppercase tracking-wide">
                   {filter.label}
                 </label>
                 {renderFilter(filter)}
@@ -230,8 +240,8 @@ const FilterBar = ({
           </div>
 
           {showApplyButton && (
-            <div className="flex justify-end mt-4">
-              <Button variant="primary" onClick={handleApply}>
+            <div className="flex justify-end mt-4 pt-3 border-t border-gray-100">
+              <Button variant="primary" size="sm" onClick={handleApply}>
                 Apply Filters
               </Button>
             </div>
@@ -247,8 +257,8 @@ const FilterBar = ({
  */
 export const QuickFilter = ({ options = [], value, onChange, label, className = '' }) => {
   return (
-    <div className={`flex items-center gap-2 ${className}`}>
-      {label && <span className="text-sm text-gray-600">{label}:</span>}
+    <div className={`flex flex-col sm:flex-row sm:items-center gap-2 ${className}`}>
+      {label && <span className="text-sm text-gray-600 flex-shrink-0">{label}:</span>}
       <div className="flex flex-wrap gap-1">
         {options.map((option) => (
           <button
@@ -314,7 +324,7 @@ export const SearchInput = ({
         value={localValue || ''}
         onChange={(e) => setLocalValue(e.target.value)}
         placeholder={placeholder}
-        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-200 focus:border-primary-500"
+        className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-200 focus:border-primary-500"
       />
       {localValue && (
         <button

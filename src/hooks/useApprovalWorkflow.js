@@ -1,199 +1,243 @@
 import { useMemo, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
-import { STATUS_VALUES, ROLES } from '../utils/constants';
+import { STATUS_VALUES, ROLES, PAYMENT_MODES } from '../utils/constants';
 
 /**
- * Custom hook for simplified approval workflow
- * Flow: PENDING_APPROVAL → APPROVED → CLOSED (or REJECTED)
+ * Custom hook for 4-stage payment-mode-based approval workflow
+ * Flow: PENDING_APPROVAL → READY_FOR_UPLOAD → UPLOADED_TO_BANK → PAYMENT_DONE
+ * Routing: Cashfree invoices → Anush (CASHFREE_APPROVER)
+ *          IDFC Bank invoices → Ramesh (IDFC_APPROVER)
  */
 const useApprovalWorkflow = () => {
-  const { user, hasRole } = useAuth();
-  const { approveEntry, rejectEntry, markAsPaid, getAllEntries } = useData();
+  const { hasRole } = useAuth();
+  const { approveEntry, rejectEntry, markAsPaid, uploadForPayment, putOnHold, getAllEntries } = useData();
 
-  /**
-   * Get all entries pending approval (admin sees these)
-   */
+  // Helper: normalize legacy statuses
+  const normalizeStatus = (status) => {
+    if (status === 'pending' || status === 'awaiting_manager_approval' || status === 'awaiting_accounts_approval') return STATUS_VALUES.PENDING_APPROVAL;
+    if (status === 'approved' || status === 'awaiting_payment') return STATUS_VALUES.READY_FOR_UPLOAD;
+    if (status === 'uploaded_for_payment') return STATUS_VALUES.UPLOADED_TO_BANK;
+    if (status === 'closed') return STATUS_VALUES.PAYMENT_DONE;
+    return status;
+  };
+
+  const isPending = (entry) => normalizeStatus(entry.status) === STATUS_VALUES.PENDING_APPROVAL;
+  const isReadyForUpload = (entry) => normalizeStatus(entry.status) === STATUS_VALUES.READY_FOR_UPLOAD;
+  const isUploadedToBank = (entry) => normalizeStatus(entry.status) === STATUS_VALUES.UPLOADED_TO_BANK;
+  const isPaymentDone = (entry) => normalizeStatus(entry.status) === STATUS_VALUES.PAYMENT_DONE;
+  const isOnHold = (entry) => entry.status === STATUS_VALUES.ON_HOLD;
+  const isRejected = (entry) => entry.status === STATUS_VALUES.REJECTED;
+
+  // Backward compat aliases
+  const isApproved = isReadyForUpload;
+  const isUploadedForPayment = isUploadedToBank;
+
   const pendingApprovalEntries = useMemo(() => {
-    const allEntries = getAllEntries();
-    return allEntries.filter(
-      (entry) => entry.status === STATUS_VALUES.PENDING_APPROVAL
-    );
+    return getAllEntries().filter(isPending);
   }, [getAllEntries]);
 
-  /**
-   * Get entries awaiting payment (approved but not yet closed)
-   */
+  const myPendingQueue = useMemo(() => {
+    const pending = getAllEntries().filter(isPending);
+    if (hasRole(ROLES.CASHFREE_APPROVER)) {
+      return pending.filter(e => e.paymentMode === PAYMENT_MODES.CASHFREE);
+    }
+    if (hasRole(ROLES.IDFC_APPROVER)) {
+      return pending.filter(e => e.paymentMode === PAYMENT_MODES.IDFC_BANK);
+    }
+    return pending;
+  }, [getAllEntries, hasRole]);
+
   const awaitingPaymentEntries = useMemo(() => {
-    const allEntries = getAllEntries();
-    return allEntries.filter(
-      (entry) => entry.status === STATUS_VALUES.APPROVED
-    );
+    return getAllEntries().filter(isReadyForUpload);
   }, [getAllEntries]);
 
-  /**
-   * Get approved entries (includes awaiting payment)
-   */
   const approvedEntries = useMemo(() => {
-    const allEntries = getAllEntries();
-    return allEntries.filter(
-      (entry) =>
-        entry.status === STATUS_VALUES.APPROVED ||
-        entry.status === STATUS_VALUES.CLOSED
+    return getAllEntries().filter(
+      (entry) => isReadyForUpload(entry) || isPaymentDone(entry) || isUploadedToBank(entry)
     );
   }, [getAllEntries]);
 
-  /**
-   * Get rejected entries
-   */
   const rejectedEntries = useMemo(() => {
-    const allEntries = getAllEntries();
-    return allEntries.filter(
-      (entry) => entry.status === STATUS_VALUES.REJECTED
-    );
+    return getAllEntries().filter(isRejected);
   }, [getAllEntries]);
 
-  /**
-   * Get completed (closed) entries
-   */
   const completedEntries = useMemo(() => {
-    const allEntries = getAllEntries();
-    return allEntries.filter((entry) => entry.status === STATUS_VALUES.CLOSED);
+    return getAllEntries().filter(isPaymentDone);
+  }, [getAllEntries]);
+
+  const uploadedForPaymentEntries = useMemo(() => {
+    return getAllEntries().filter(isUploadedToBank);
+  }, [getAllEntries]);
+
+  const paymentDoneEntries = useMemo(() => {
+    return getAllEntries().filter(isPaymentDone);
+  }, [getAllEntries]);
+
+  const onHoldEntries = useMemo(() => {
+    return getAllEntries().filter(isOnHold);
   }, [getAllEntries]);
 
   /**
    * Check if user can approve an entry
-   * Only admin can approve, and only when status is pending_approval
+   * CASHFREE → only CASHFREE_APPROVER (Anush)
+   * IDFC → only IDFC_APPROVER (Ramesh)
    */
   const canApprove = useCallback(
     (entry) => {
-      if (!entry) return false;
-      if (!hasRole(ROLES.ADMIN)) return false;
-      return entry.status === STATUS_VALUES.PENDING_APPROVAL;
+      if (!entry || !isPending(entry)) return false;
+      if (hasRole(ROLES.ADMIN)) return true;
+
+      const mode = entry.paymentMode;
+      if (mode === PAYMENT_MODES.CASHFREE) return hasRole(ROLES.CASHFREE_APPROVER);
+      if (mode === PAYMENT_MODES.IDFC_BANK) return hasRole(ROLES.IDFC_APPROVER);
+      return hasRole([ROLES.CASHFREE_APPROVER, ROLES.IDFC_APPROVER]);
     },
     [hasRole]
   );
 
   /**
-   * Check if user can mark entry as paid (process payment)
-   * Accounts and admin can do this when status is approved
+   * Check if user can upload for payment
+   * Only ACCOUNTS can: READY_FOR_UPLOAD → UPLOADED_TO_BANK
+   */
+  const canUploadForPayment = useCallback(
+    (entry) => {
+      if (!entry || !isReadyForUpload(entry)) return false;
+      return hasRole([ROLES.ACCOUNTS, ROLES.ADMIN]);
+    },
+    [hasRole]
+  );
+
+  /**
+   * Check if user can mark as paid
+   * Only ACCOUNTS can: UPLOADED_TO_BANK → PAYMENT_DONE
    */
   const canMarkPaid = useCallback(
     (entry) => {
-      if (!entry) return false;
-      if (!hasRole([ROLES.ACCOUNTS, ROLES.ADMIN])) return false;
-      return entry.status === STATUS_VALUES.APPROVED;
+      if (!entry || !isUploadedToBank(entry)) return false;
+      if (hasRole(ROLES.ADMIN)) return true;
+      return hasRole(ROLES.ACCOUNTS);
     },
     [hasRole]
   );
 
-  /**
-   * Get current status label for display
-   */
   const getStatusLabel = useCallback((entry) => {
     if (!entry) return 'Unknown';
-
-    switch (entry.status) {
-      case STATUS_VALUES.PENDING_APPROVAL:
-        return 'Pending Approval';
-      case STATUS_VALUES.APPROVED:
-        return 'Approved - Awaiting Payment';
-      case STATUS_VALUES.REJECTED:
-        return 'Rejected';
-      case STATUS_VALUES.CLOSED:
-        return `Payment Processed${entry.paymentMode ? ` (${entry.paymentMode})` : ''}`;
-      default:
-        return 'Pending Approval';
-    }
+    if (isPending(entry)) return 'Pending Approval';
+    if (isReadyForUpload(entry)) return 'Ready for Upload';
+    if (isUploadedToBank(entry)) return 'Uploaded to Bank';
+    if (isOnHold(entry)) return 'On Hold';
+    if (isRejected(entry)) return 'Rejected';
+    if (isPaymentDone(entry)) return `Payment Done${entry.paymentMode ? ` (${entry.paymentMode})` : ''}`;
+    return 'Pending Approval';
   }, []);
 
-  /**
-   * Get workflow step (0-3)
-   * 0: Pending Approval, 1: Approved, 2: Payment Processed, -1: Rejected
-   */
   const getWorkflowStep = useCallback((entry) => {
     if (!entry) return 0;
-
-    switch (entry.status) {
-      case STATUS_VALUES.CLOSED:
-        return 2;
-      case STATUS_VALUES.APPROVED:
-        return 1;
-      case STATUS_VALUES.REJECTED:
-        return -1;
-      default:
-        return 0;
-    }
+    if (isPaymentDone(entry)) return 3;
+    if (isUploadedToBank(entry)) return 2;
+    if (isReadyForUpload(entry)) return 1;
+    if (isRejected(entry)) return -1;
+    if (isOnHold(entry)) return -2;
+    return 0;
   }, []);
 
-  /**
-   * Handle approve action
-   */
   const handleApprove = useCallback(
-    async (module, id, notes = '') => {
-      return approveEntry(module, id, notes);
-    },
+    async (module, id, notes = '') => approveEntry(module, id, notes),
     [approveEntry]
   );
 
-  /**
-   * Handle reject action
-   */
   const handleReject = useCallback(
-    async (module, id, notes = '') => {
-      return rejectEntry(module, id, notes);
-    },
+    async (module, id, notes = '') => rejectEntry(module, id, notes),
     [rejectEntry]
   );
 
-  /**
-   * Handle mark as paid action (with payment mode)
-   */
   const handleMarkPaid = useCallback(
-    async (module, id, paymentMode) => {
-      return markAsPaid(module, id, paymentMode);
-    },
+    async (module, id, paymentMode) => markAsPaid(module, id, paymentMode),
     [markAsPaid]
   );
 
-  /**
-   * Get approval stats
-   */
+  const handleUploadForPayment = useCallback(
+    async (module, id) => uploadForPayment(module, id),
+    [uploadForPayment]
+  );
+
+  const handlePutOnHold = useCallback(
+    async (module, id, notes = '') => putOnHold(module, id, notes),
+    [putOnHold]
+  );
+
   const stats = useMemo(() => {
     const allEntries = getAllEntries();
+    const getAmount = (e) => Number(e.finalPayable) || Number(e.netPayable) || Number(e.invoiceAmount) || Number(e.payableAmount) || Number(e.refundAmount) || Number(e.amount) || 0;
+    const sumAmount = (entries) => entries.reduce((sum, e) => sum + getAmount(e), 0);
+
+    const pending = allEntries.filter(isPending);
+    const ready = allEntries.filter(isReadyForUpload);
+    const uploaded = allEntries.filter(isUploadedToBank);
+    const done = allEntries.filter(isPaymentDone);
+    const rejected = allEntries.filter(isRejected);
+    const onHold = allEntries.filter(isOnHold);
 
     return {
       total: allEntries.length,
-      pendingApproval: allEntries.filter(
-        (e) => e.status === STATUS_VALUES.PENDING_APPROVAL
-      ).length,
-      approved: allEntries.filter(
-        (e) => e.status === STATUS_VALUES.APPROVED
-      ).length,
-      closed: allEntries.filter((e) => e.status === STATUS_VALUES.CLOSED).length,
-      rejected: allEntries.filter(
-        (e) => e.status === STATUS_VALUES.REJECTED
-      ).length,
+      totalAmount: sumAmount(allEntries),
+      pendingApproval: pending.length,
+      pendingAmount: sumAmount(pending),
+      // Backward compat
+      approved: ready.length,
+      approvedAmount: sumAmount(ready),
+      readyForUpload: ready.length,
+      readyForUploadAmount: sumAmount(ready),
+      uploadedForPayment: uploaded.length,
+      uploadedForPaymentAmount: sumAmount(uploaded),
+      uploadedToBank: uploaded.length,
+      uploadedToBankAmount: sumAmount(uploaded),
+      closed: done.length,
+      closedAmount: sumAmount(done),
+      paymentDone: done.length,
+      paymentDoneAmount: sumAmount(done),
+      rejected: rejected.length,
+      rejectedAmount: sumAmount(rejected),
+      onHold: onHold.length,
+      onHoldAmount: sumAmount(onHold),
+      totalPendingAmount: sumAmount(pending) + sumAmount(ready) + sumAmount(uploaded),
+      totalPaidAmount: sumAmount(done),
     };
   }, [getAllEntries]);
 
   return {
     // Entries by status
     pendingApprovalEntries,
+    myPendingQueue,
     awaitingPaymentEntries,
     approvedEntries,
     rejectedEntries,
     completedEntries,
+    uploadedForPaymentEntries,
+    paymentDoneEntries,
+    onHoldEntries,
     // Permission checks
     canApprove,
+    canUploadForPayment,
     canMarkPaid,
     // Actions
     handleApprove,
     handleReject,
     handleMarkPaid,
+    handleUploadForPayment,
+    handlePutOnHold,
     // Utilities
     getStatusLabel,
     getWorkflowStep,
+    isPending,
+    isReadyForUpload,
+    isApproved,
+    isUploadedToBank,
+    isUploadedForPayment,
+    isPaymentDone,
+    isOnHold,
+    isRejected,
     stats,
   };
 };

@@ -1,13 +1,27 @@
 // Application version for localStorage migration
-export const APP_VERSION = '2.0.0';
+export const APP_VERSION = '3.0.0';
 export const STORAGE_VERSION_KEY = 'ACCOUNTS_APP_VERSION';
 
-// Status values for approval workflow
+// Status values for 4-stage approval workflow
+// PENDING_APPROVAL → READY_FOR_UPLOAD → UPLOADED_TO_BANK → PAYMENT_DONE
 export const STATUS_VALUES = {
   PENDING_APPROVAL: 'pending_approval',
-  APPROVED: 'approved',
+  READY_FOR_UPLOAD: 'ready_for_upload',
+  UPLOADED_TO_BANK: 'uploaded_to_bank',
+  PAYMENT_DONE: 'payment_done',
   REJECTED: 'rejected',
-  CLOSED: 'closed',
+  ON_HOLD: 'on_hold',
+  // Backward compat aliases
+  APPROVED: 'ready_for_upload',
+  UPLOADED_FOR_PAYMENT: 'uploaded_to_bank',
+  CLOSED: 'payment_done',
+};
+
+// Payment statuses (derived from bill_payments)
+export const PAYMENT_STATUS_DERIVED = {
+  PENDING: 'Pending Payment',
+  PARTIALLY_PAID: 'Partially Paid',
+  PAID: 'Paid',
 };
 
 // User roles
@@ -15,11 +29,13 @@ export const ROLES = {
   VIEWER: 'viewer',
   ACCOUNTS: 'accounts',
   ADMIN: 'admin',
+  CASHFREE_APPROVER: 'cashfree_approver',
+  IDFC_APPROVER: 'idfc_approver',
 };
 
 // Payment modes
 export const PAYMENT_MODES = {
-  BANK: 'Bank',
+  IDFC_BANK: 'IDFC Bank',
   CASHFREE: 'Cashfree',
 };
 
@@ -55,6 +71,26 @@ export const PERMISSIONS = {
     canViewAdmin: true,
     modules: ['all'],
   },
+  [ROLES.CASHFREE_APPROVER]: {
+    canCreate: false,
+    canEdit: false,
+    canDelete: false,
+    canApprove: true,
+    canMarkPaid: true,
+    canViewAudit: true,
+    canViewAdmin: false,
+    modules: ['all'],
+  },
+  [ROLES.IDFC_APPROVER]: {
+    canCreate: false,
+    canEdit: false,
+    canDelete: false,
+    canApprove: true,
+    canMarkPaid: false,
+    canViewAudit: true,
+    canViewAdmin: true,
+    modules: ['all'],
+  },
 };
 
 // Module names and configurations
@@ -75,7 +111,7 @@ export const MODULE_CONFIG = {
     label: 'Transport Bills',
     icon: '🚚',
     path: '/transport-bills',
-    amountField: 'invoiceAmount',
+    amountField: 'finalPayable',
     hasProfit: true,
   },
   [MODULE_NAMES.GENERAL]: {
@@ -137,6 +173,20 @@ export const MODULE_CONFIG = {
   },
 };
 
+// Sidebar navigation config
+export const SIDEBAR_NAV = [
+  { path: '/dashboard', label: 'Overview', icon: 'LayoutDashboard', roles: 'all' },
+  { path: '/approvals', label: 'Approvals', icon: 'CheckCircle', roles: [ROLES.ACCOUNTS, ROLES.ADMIN, ROLES.CASHFREE_APPROVER, ROLES.IDFC_APPROVER] },
+  { path: '/transport-bills', label: 'Transport', icon: 'Truck', roles: [ROLES.ACCOUNTS, ROLES.ADMIN, ROLES.CASHFREE_APPROVER, ROLES.IDFC_APPROVER] },
+  { path: '/general-bills', label: 'General', icon: 'FileText', roles: [ROLES.ACCOUNTS, ROLES.ADMIN, ROLES.CASHFREE_APPROVER, ROLES.IDFC_APPROVER] },
+  { path: '/packing-materials', label: 'Packing', icon: 'Package', roles: [ROLES.ACCOUNTS, ROLES.ADMIN, ROLES.CASHFREE_APPROVER, ROLES.IDFC_APPROVER] },
+  { path: '/petty-cash', label: 'Petty Cash', icon: 'Wallet', roles: [ROLES.ACCOUNTS, ROLES.ADMIN, ROLES.CASHFREE_APPROVER, ROLES.IDFC_APPROVER] },
+  { path: '/vendor-ledger', label: 'Vendor Ledger', icon: 'BookOpen', roles: [ROLES.ACCOUNTS, ROLES.ADMIN, ROLES.CASHFREE_APPROVER, ROLES.IDFC_APPROVER] },
+  { path: '/reports', label: 'Reports', icon: 'BarChart3', roles: [ROLES.ACCOUNTS, ROLES.ADMIN, ROLES.CASHFREE_APPROVER, ROLES.IDFC_APPROVER] },
+  { path: '/audit', label: 'Audit Log', icon: 'Shield', roles: [ROLES.ACCOUNTS, ROLES.ADMIN, ROLES.CASHFREE_APPROVER, ROLES.IDFC_APPROVER] },
+  { path: '/admin', label: 'Admin', icon: 'Settings', roles: [ROLES.ADMIN, ROLES.IDFC_APPROVER] },
+];
+
 // Storage keys for localStorage
 export const STORAGE_KEYS = {
   USER: 'accounts_user',
@@ -160,24 +210,42 @@ export const AUDIT_ACTIONS = {
   APPROVE: 'APPROVE',
   REJECT: 'REJECT',
   MARK_PAID: 'MARK_PAID',
+  UPLOAD_FOR_PAYMENT: 'UPLOAD_FOR_PAYMENT',
+  ADD_PAYMENT: 'ADD_PAYMENT',
   LOGIN: 'LOGIN',
   LOGOUT: 'LOGOUT',
 };
 
-// Payment status options
+// Management approval status
+export const MGMT_APPROVAL = {
+  PENDING: 'pending',
+  APPROVED: 'approved',
+  REJECTED: 'rejected',
+};
+
+// Payment status options (legacy)
 export const PAYMENT_STATUS = {
+  PENDING: 'Pending',
   PAYMENT_DONE: 'Payment done',
   HOLD: 'Hold',
   PARTIALLY_PENDING: 'partially pending',
-  PENDING: 'Pending',
+  YET_TO_UPLOAD: 'Yet to upload',
+  UPLOADED: 'Uploaded',
+  EXPIRED: 'Expired',
+  NOT_VALID: 'Not valid',
 };
 
 // Badge color mappings
 export const STATUS_COLORS = {
   [STATUS_VALUES.PENDING_APPROVAL]: 'warning',
-  [STATUS_VALUES.APPROVED]: 'primary',
+  [STATUS_VALUES.READY_FOR_UPLOAD]: 'primary',
+  [STATUS_VALUES.UPLOADED_TO_BANK]: 'info',
+  [STATUS_VALUES.PAYMENT_DONE]: 'success',
   [STATUS_VALUES.REJECTED]: 'danger',
-  [STATUS_VALUES.CLOSED]: 'success',
+  [STATUS_VALUES.ON_HOLD]: 'warning',
+  // Legacy compat
+  approved: 'primary',
+  uploaded_for_payment: 'info',
 };
 
 // Pagination defaults
@@ -190,4 +258,31 @@ export const PAGINATION = {
 export const DATE_FORMAT = {
   DISPLAY: 'en-IN',
   INPUT: 'yyyy-MM-dd',
+};
+
+// Valid status transitions (prevent skipping stages)
+export const STATUS_TRANSITIONS = {
+  [STATUS_VALUES.PENDING_APPROVAL]: [STATUS_VALUES.READY_FOR_UPLOAD, STATUS_VALUES.REJECTED, STATUS_VALUES.ON_HOLD],
+  [STATUS_VALUES.READY_FOR_UPLOAD]: [STATUS_VALUES.UPLOADED_TO_BANK, STATUS_VALUES.ON_HOLD],
+  [STATUS_VALUES.UPLOADED_TO_BANK]: [STATUS_VALUES.PAYMENT_DONE, STATUS_VALUES.ON_HOLD],
+  [STATUS_VALUES.PAYMENT_DONE]: [], // Terminal state
+  [STATUS_VALUES.REJECTED]: [STATUS_VALUES.PENDING_APPROVAL], // Can resubmit
+  [STATUS_VALUES.ON_HOLD]: [STATUS_VALUES.PENDING_APPROVAL, STATUS_VALUES.READY_FOR_UPLOAD, STATUS_VALUES.UPLOADED_TO_BANK],
+};
+
+// Check if a status transition is valid
+export const isValidTransition = (fromStatus, toStatus) => {
+  // Normalize legacy statuses
+  const normalizeStatus = (s) => {
+    if (s === 'approved' || s === 'awaiting_payment') return STATUS_VALUES.READY_FOR_UPLOAD;
+    if (s === 'uploaded_for_payment') return STATUS_VALUES.UPLOADED_TO_BANK;
+    if (s === 'closed') return STATUS_VALUES.PAYMENT_DONE;
+    if (s === 'pending' || s === 'awaiting_manager_approval' || s === 'awaiting_accounts_approval') return STATUS_VALUES.PENDING_APPROVAL;
+    return s;
+  };
+
+  const from = normalizeStatus(fromStatus);
+  const to = normalizeStatus(toStatus);
+  const allowed = STATUS_TRANSITIONS[from];
+  return allowed ? allowed.includes(to) : false;
 };

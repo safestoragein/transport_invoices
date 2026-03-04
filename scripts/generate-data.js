@@ -1,6 +1,6 @@
 /**
  * generate-data.js
- * Parses Vendor_bills_10_feb.xlsx and outputs JSON seed data for each module.
+ * Parses Vendor bills_16_feb.xlsx and outputs JSON seed data for each module.
  *
  * Usage: node scripts/generate-data.js
  */
@@ -8,7 +8,7 @@ const XLSX = require('xlsx');
 const fs = require('fs');
 const path = require('path');
 
-const EXCEL_PATH = path.resolve(__dirname, '../../Vendor_bills_10_feb.xlsx');
+const EXCEL_PATH = path.resolve(__dirname, '../../Vendor bills_16_feb.xlsx');
 const OUTPUT_DIR = path.resolve(__dirname, '../src/data');
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -105,21 +105,60 @@ function normalizePaymentStatus(raw) {
   const s = str(raw).toLowerCase().replace(/\s+/g, ' ').trim();
   if (!s) return 'Pending';
   if (s.includes('payment done') || s === 'processed') return 'Payment done';
+  if (s === 'pending for approval') return 'Pending';
   if (s.includes('hold')) return 'Hold';
   if (s.includes('partial')) return 'partially pending';
+  if (s.includes('yet to upload')) return 'Yet to upload';
+  if (s === 'expired') return 'Expired';
+  if (s === 'not valid') return 'Not valid';
+  if (s === 'uploaded') return 'Uploaded';
   return 'Pending';
 }
 
 /**
+ * Normalize refund status strings — preserves more granularity than payment status.
+ */
+function normalizeRefundStatus(raw) {
+  const s = str(raw).toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!s) return 'Pending';
+  if (s === 'processed') return 'Processed';
+  if (s === 'yet to upload') return 'Yet to upload';
+  if (s === 'uploaded') return 'Uploaded';
+  if (s === 'expired') return 'Expired';
+  if (s === 'not valid') return 'Not valid';
+  return 'Pending';
+}
+
+/**
+ * Derive workflow status from the payment/refund status.
+ * Maps: Payment done / Processed → closed (fully done)
+ *       Hold → pending_approval
+ *       Pending (from "pending for approval") → pending_approval
+ *       Yet to upload / Uploaded / Expired / Not valid → approved (past approval, in payment phase)
+ *       partially pending → approved
+ */
+function deriveWorkflowStatus(paymentStatus, refundStatus) {
+  const ps = (paymentStatus || refundStatus || '').toLowerCase();
+  if (ps === 'payment done' || ps === 'processed') return 'closed';
+  if (ps === 'pending' || ps === 'hold') return 'pending_approval';
+  if (ps === 'yet to upload' || ps === 'uploaded' || ps === 'expired' || ps === 'not valid' || ps === 'partially pending') return 'approved';
+  return 'pending_approval';
+}
+
+/**
  * Wrap a mapped record with default workflow fields.
+ * Workflow status is derived from the payment/refund status in the Excel data.
  */
 function withDefaults(record) {
+  const workflowStatus = deriveWorkflowStatus(record.paymentStatus, record.refundStatus);
+  const isClosed = workflowStatus === 'closed';
+  const isApproved = workflowStatus === 'approved' || isClosed;
   return {
     id: generateId(),
     ...record,
-    status: 'pending',
-    managerApproval: 'pending',
-    accountsApproval: 'pending',
+    status: workflowStatus,
+    managerApproval: isApproved ? 'approved' : 'pending',
+    accountsApproval: isClosed ? 'approved' : 'pending',
     submittedBy: 'system',
     submittedAt: new Date().toISOString(),
     createdAt: new Date().toISOString(),
@@ -131,7 +170,7 @@ function withDefaults(record) {
 
 function mapGeneralBills(rows) {
   return rows
-    .filter(r => str(r['Vendor Name ']))
+    .filter(r => str(r['Vendor Name ']) && str(r['Vendor Name ']) !== '0')
     .map(r => withDefaults({
       vendorName: str(r['Vendor Name ']),
       invoiceNo: str(r['Invoice No']),
@@ -141,25 +180,35 @@ function mapGeneralBills(rows) {
       paymentStatus: normalizePaymentStatus(r['`']),
       uploadedDate: str(r['Upladed date']),
       approvedBy: str(r['Approved by']),
+      approvedDate: str(r['Approved date']),
     }));
 }
 
 function mapTransportBills(rows) {
   return rows
     .filter(r => str(r['Vendor Name ']))
-    .map(r => withDefaults({
-      invoiceNumber: str(r['Invoice No']),
-      vendorName: str(r['Vendor Name ']),
-      city: str(r['City']),
-      invoiceDate: normalizeDate(r['Invoice date ']),
-      month: str(r['Month']),
-      invoiceAmount: num(r['Vendor amount ']),
-      profitLoss: num(r['P/L amount']),
-      paymentStatus: normalizePaymentStatus(r['Payment done']),
-      receivedAmount: 0,
-      packingMaterial: 0,
-      remarks: '',
-    }));
+    .map(r => {
+      // Vendor amount column: try 'Vendor amount ' first, fall back to '__EMPTY' if shifted
+      const vendorAmount = r['Vendor amount '] !== '' && r['Vendor amount '] !== undefined
+        ? num(r['Vendor amount '])
+        : num(r['__EMPTY']);
+      return withDefaults({
+        invoiceNumber: str(r['Invoice No']),
+        vendorName: str(r['Vendor Name ']),
+        city: str(r['City']),
+        invoiceDate: normalizeDate(r['Invoice date ']),
+        month: str(r['Month']),
+        invoiceAmount: vendorAmount,
+        profitLossType: str(r['Profit/Loss']),
+        profitLoss: num(r['P/L amount']),
+        paymentStatus: normalizePaymentStatus(r['Payment done']),
+        uploadedDate: str(r['Uploaded date']),
+        approvedBy: str(r['Approved by']),
+        receivedAmount: 0,
+        packingMaterial: 0,
+        remarks: '',
+      });
+    });
 }
 
 function mapPackingMaterials(rows) {
@@ -171,9 +220,14 @@ function mapPackingMaterials(rows) {
       invoiceDate: normalizeDate(r['Invoice date']),
       month: str(r['Month']),
       payableAmount: num(r['Payable amount']),
-      paymentStatus: normalizePaymentStatus(r['Payment Status']),
-      city: str(r['City']),
+      materials: str(r['materials']),
       submissionStatus: str(r['Submission Status']),
+      city: str(r['City']),
+      paymentStatus: normalizePaymentStatus(r['Payment Status']),
+      bankStatus: str(r['Bank Status']),
+      uploadedDate: str(r['Upladed date']),
+      approvedBy: str(r['Approved by']),
+      approvedDate: str(r['Aproved date ']),
     }));
 }
 
@@ -188,6 +242,8 @@ function mapPettyCash(rows) {
       amount: num(r['Payable amount ']),
       paymentStatus: normalizePaymentStatus(r['Payment status ']),
       remarks: str(r['Remarks']),
+      uploadedDate: str(r['Upladed date']),
+      approvedBy: str(r['Approved by']),
     }));
 }
 
@@ -200,7 +256,8 @@ function mapRefunds(rows) {
       refundAmount: num(r['Refund amount ']),
       reason: str(r['Discription ']),
       date: normalizeDate(r['Date ']),
-      refundStatus: normalizePaymentStatus(r['Refund status ']),
+      refundStatus: normalizeRefundStatus(r['Refund status ']),
+      uploadedDate: str(r['uploaded date']),
     }));
 }
 
@@ -213,6 +270,9 @@ function mapHappyCard(rows) {
       payableAmount: num(r['Payable amount ']),
       paymentStatus: normalizePaymentStatus(r['Payment status ']),
       remarks: str(r['Remarks']),
+      uploadedDate: normalizeDate(r['Upladed date']),
+      approvedBy: str(r['Approved by']),
+      approvedDate: str(r['Approved date']),
       date: normalizeDate(r['Upladed date']),
     }));
 }
@@ -234,13 +294,20 @@ function mapDriveTrackPorter(rows) {
 function mapReviews(rows) {
   return rows
     .filter(r => str(r['Name']) || num(r['Amount']))
-    .map(r => withDefaults({
-      city: str(r['City']),
-      rating: num(r['Remarks / Reviews']),
-      amount: num(r['Amount']),
-      date: normalizeDate(r['Date']),
-      reviewerName: str(r['Name']),
-    }));
+    .map(r => {
+      const record = withDefaults({
+        city: str(r['City']),
+        rating: num(r['Remarks / Reviews']),
+        amount: num(r['Amount']),
+        date: normalizeDate(r['Date']),
+        reviewerName: str(r['Name']),
+      });
+      // Reviews are completed payments — override workflow status to closed
+      record.status = 'closed';
+      record.managerApproval = 'approved';
+      record.accountsApproval = 'approved';
+      return record;
+    });
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────

@@ -42,31 +42,38 @@ export const StatCard = ({
   isCurrency = false,
   subtitle,
   className = '',
+  onClick,
+  active = false,
 }) => {
   const colors = colorStyles[color] || colorStyles.primary;
 
   const displayValue = isCurrency ? formatCurrency(value) : value;
+  const Component = onClick ? 'button' : 'div';
 
   return (
-    <div
+    <Component
+      onClick={onClick}
+      type={onClick ? 'button' : undefined}
       className={`
-        bg-white rounded-xl shadow-card p-5
-        hover:shadow-hover transition-shadow duration-200
+        bg-white rounded-xl shadow-card p-5 text-left w-full
+        hover:shadow-hover transition-all duration-200
+        ${onClick ? 'cursor-pointer' : ''}
+        ${active ? 'ring-2 ring-primary-500 ring-offset-1' : ''}
         ${className}
       `}
     >
-      <div className="flex items-start justify-between">
-        <div className="flex-1">
-          <p className="text-sm font-medium text-gray-500">{title}</p>
-          <p className={`text-2xl font-bold mt-2 ${colors.text}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-gray-500 truncate">{title}</p>
+          <p className={`text-2xl font-bold mt-2 ${colors.text} truncate`}>
             {displayValue}
           </p>
           {subtitle && (
-            <p className="text-xs text-gray-400 mt-1">{subtitle}</p>
+            <p className="text-xs text-gray-400 mt-1 truncate">{subtitle}</p>
           )}
         </div>
         {icon && (
-          <div className={`p-3 rounded-lg ${colors.icon}`}>
+          <div className={`p-3 rounded-lg flex-shrink-0 ${colors.icon}`}>
             {icon}
           </div>
         )}
@@ -96,7 +103,7 @@ export const StatCard = ({
           )}
         </div>
       )}
-    </div>
+    </Component>
   );
 };
 

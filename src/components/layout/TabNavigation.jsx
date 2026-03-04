@@ -7,7 +7,7 @@ import { MODULE_CONFIG, ROLES } from '../../utils/constants';
  * TabNavigation component - Module navigation tabs
  */
 const TabNavigation = ({ className = '' }) => {
-  const { user, hasRole } = useAuth();
+  const { hasRole } = useAuth();
   const location = useLocation();
 
   // Define navigation items based on role
@@ -19,7 +19,7 @@ const TabNavigation = ({ className = '' }) => {
       path: '/dashboard',
       label: 'Dashboard',
       icon: '📊',
-      roles: [ROLES.ACCOUNTS, ROLES.ADMIN, ROLES.VIEWER],
+      roles: [ROLES.ACCOUNTS, ROLES.ADMIN, ROLES.VIEWER, ROLES.CASHFREE_APPROVER, ROLES.IDFC_APPROVER],
     });
 
     // Calendar - Available to all
@@ -27,45 +27,47 @@ const TabNavigation = ({ className = '' }) => {
       path: '/calendar',
       label: 'Calendar',
       icon: '📅',
-      roles: [ROLES.ACCOUNTS, ROLES.ADMIN, ROLES.VIEWER],
+      roles: [ROLES.ACCOUNTS, ROLES.ADMIN, ROLES.VIEWER, ROLES.CASHFREE_APPROVER, ROLES.IDFC_APPROVER],
     });
 
-    // Approvals - Accounts and Admin
+    // Approvals - Accounts, Admin, and Approvers
     items.push({
       path: '/approvals',
-      label: hasRole(ROLES.ADMIN) ? 'Approvals' : 'Process Payments',
+      label: hasRole(ROLES.ADMIN) ? 'Approvals' :
+             hasRole([ROLES.CASHFREE_APPROVER, ROLES.IDFC_APPROVER]) ? 'Approvals' :
+             'Process Payments',
       icon: '🔍',
-      roles: [ROLES.ACCOUNTS, ROLES.ADMIN],
+      roles: [ROLES.ACCOUNTS, ROLES.ADMIN, ROLES.CASHFREE_APPROVER, ROLES.IDFC_APPROVER],
       highlight: true,
     });
 
-    // Module entry forms - Accounts and Admin
-    if (hasRole([ROLES.ACCOUNTS, ROLES.ADMIN])) {
+    // Module entry forms - Accounts, Admin, and Approvers (view-only for approvers)
+    if (hasRole([ROLES.ACCOUNTS, ROLES.ADMIN, ROLES.CASHFREE_APPROVER, ROLES.IDFC_APPROVER])) {
       Object.values(MODULE_CONFIG).forEach(module => {
         items.push({
           path: module.path,
           label: module.label,
           icon: module.icon,
-          roles: [ROLES.ACCOUNTS, ROLES.ADMIN],
+          roles: [ROLES.ACCOUNTS, ROLES.ADMIN, ROLES.CASHFREE_APPROVER, ROLES.IDFC_APPROVER],
         });
       });
     }
 
-    // Admin Panel - Admin only
+    // Admin Panel - Admin and IDFC Approver (Ramesh)
     items.push({
       path: '/admin',
       label: 'System Admin',
       icon: '⚙️',
-      roles: [ROLES.ADMIN],
+      roles: [ROLES.ADMIN, ROLES.IDFC_APPROVER],
       highlight: true,
     });
 
-    // Audit Log - Accounts and Admin
+    // Audit Log - Accounts, Admin, and Approvers
     items.push({
       path: '/audit',
       label: 'Audit Log',
       icon: '📋',
-      roles: [ROLES.ACCOUNTS, ROLES.ADMIN],
+      roles: [ROLES.ACCOUNTS, ROLES.ADMIN, ROLES.CASHFREE_APPROVER, ROLES.IDFC_APPROVER],
     });
 
     return items.filter(item => item.roles.some(role => hasRole(role)));
@@ -115,11 +117,11 @@ export const MobileTabBar = ({ className = '' }) => {
   const location = useLocation();
 
   const mobileItems = [
-    { path: '/dashboard', label: 'Dashboard', icon: '📊', roles: [ROLES.ACCOUNTS, ROLES.ADMIN, ROLES.VIEWER] },
-    { path: '/approvals', label: 'Approvals', icon: '🔍', roles: [ROLES.ACCOUNTS, ROLES.ADMIN] },
-    { path: '/transport-bills', label: 'Transport', icon: '🚚', roles: [ROLES.ACCOUNTS, ROLES.ADMIN] },
-    { path: '/general-bills', label: 'General', icon: '📄', roles: [ROLES.ACCOUNTS, ROLES.ADMIN] },
-    { path: '/admin', label: 'Admin', icon: '⚙️', roles: [ROLES.ADMIN] },
+    { path: '/dashboard', label: 'Dashboard', icon: '📊', roles: [ROLES.ACCOUNTS, ROLES.ADMIN, ROLES.VIEWER, ROLES.CASHFREE_APPROVER, ROLES.IDFC_APPROVER] },
+    { path: '/approvals', label: 'Approvals', icon: '🔍', roles: [ROLES.ACCOUNTS, ROLES.ADMIN, ROLES.CASHFREE_APPROVER, ROLES.IDFC_APPROVER] },
+    { path: '/transport-bills', label: 'Transport', icon: '🚚', roles: [ROLES.ACCOUNTS, ROLES.ADMIN, ROLES.CASHFREE_APPROVER, ROLES.IDFC_APPROVER] },
+    { path: '/general-bills', label: 'General', icon: '📄', roles: [ROLES.ACCOUNTS, ROLES.ADMIN, ROLES.CASHFREE_APPROVER, ROLES.IDFC_APPROVER] },
+    { path: '/admin', label: 'Admin', icon: '⚙️', roles: [ROLES.ADMIN, ROLES.IDFC_APPROVER] },
   ].filter(item => item.roles.some(role => hasRole(role)));
 
   return (

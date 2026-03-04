@@ -29,6 +29,11 @@ import {
   ReviewsList,
 } from './components/modules/ModuleList';
 
+// New Pages
+import InvoiceDetail from './components/modules/InvoiceDetail';
+import VendorLedger from './components/modules/VendorLedger';
+import Reports from './components/modules/Reports';
+
 // Audit
 import { AuditLog } from './components/audit';
 
@@ -38,9 +43,6 @@ import { ROLES } from './utils/constants';
 // Import Tailwind CSS
 import './index.css';
 
-/**
- * Main App Component
- */
 function App() {
   return (
     <Router basename="/">
@@ -59,21 +61,21 @@ function App() {
                       <Route path="/dashboard" element={<WeeklySummary />} />
                       <Route path="/calendar" element={<CalendarView />} />
 
-                      {/* Approval Dashboard - Accounts and Admin */}
+                      {/* Approval Dashboard */}
                       <Route
                         path="/approvals"
                         element={
-                          <ProtectedRoute requiredRoles={[ROLES.ACCOUNTS, ROLES.ADMIN]}>
+                          <ProtectedRoute requiredRoles={[ROLES.ACCOUNTS, ROLES.ADMIN, ROLES.CASHFREE_APPROVER, ROLES.IDFC_APPROVER]}>
                             <ApprovalDashboard />
                           </ProtectedRoute>
                         }
                       />
 
-                      {/* Module Routes - Accounts and Admin */}
+                      {/* Module Routes */}
                       <Route
                         path="/transport-bills"
                         element={
-                          <ProtectedRoute requiredRoles={[ROLES.ACCOUNTS, ROLES.ADMIN]}>
+                          <ProtectedRoute requiredRoles={[ROLES.ACCOUNTS, ROLES.ADMIN, ROLES.CASHFREE_APPROVER, ROLES.IDFC_APPROVER]}>
                             <TransportList />
                           </ProtectedRoute>
                         }
@@ -81,7 +83,7 @@ function App() {
                       <Route
                         path="/general-bills"
                         element={
-                          <ProtectedRoute requiredRoles={[ROLES.ACCOUNTS, ROLES.ADMIN]}>
+                          <ProtectedRoute requiredRoles={[ROLES.ACCOUNTS, ROLES.ADMIN, ROLES.CASHFREE_APPROVER, ROLES.IDFC_APPROVER]}>
                             <GeneralBillsList />
                           </ProtectedRoute>
                         }
@@ -89,7 +91,7 @@ function App() {
                       <Route
                         path="/packing-materials"
                         element={
-                          <ProtectedRoute requiredRoles={[ROLES.ACCOUNTS, ROLES.ADMIN]}>
+                          <ProtectedRoute requiredRoles={[ROLES.ACCOUNTS, ROLES.ADMIN, ROLES.CASHFREE_APPROVER, ROLES.IDFC_APPROVER]}>
                             <PackingMaterialsList />
                           </ProtectedRoute>
                         }
@@ -97,7 +99,7 @@ function App() {
                       <Route
                         path="/petty-cash"
                         element={
-                          <ProtectedRoute requiredRoles={[ROLES.ACCOUNTS, ROLES.ADMIN]}>
+                          <ProtectedRoute requiredRoles={[ROLES.ACCOUNTS, ROLES.ADMIN, ROLES.CASHFREE_APPROVER, ROLES.IDFC_APPROVER]}>
                             <PettyCashList />
                           </ProtectedRoute>
                         }
@@ -105,7 +107,7 @@ function App() {
                       <Route
                         path="/happy-card"
                         element={
-                          <ProtectedRoute requiredRoles={[ROLES.ACCOUNTS, ROLES.ADMIN]}>
+                          <ProtectedRoute requiredRoles={[ROLES.ACCOUNTS, ROLES.ADMIN, ROLES.CASHFREE_APPROVER, ROLES.IDFC_APPROVER]}>
                             <HappyCardList />
                           </ProtectedRoute>
                         }
@@ -113,7 +115,7 @@ function App() {
                       <Route
                         path="/refunds"
                         element={
-                          <ProtectedRoute requiredRoles={[ROLES.ACCOUNTS, ROLES.ADMIN]}>
+                          <ProtectedRoute requiredRoles={[ROLES.ACCOUNTS, ROLES.ADMIN, ROLES.CASHFREE_APPROVER, ROLES.IDFC_APPROVER]}>
                             <RefundsList />
                           </ProtectedRoute>
                         }
@@ -121,7 +123,7 @@ function App() {
                       <Route
                         path="/drive-track"
                         element={
-                          <ProtectedRoute requiredRoles={[ROLES.ACCOUNTS, ROLES.ADMIN]}>
+                          <ProtectedRoute requiredRoles={[ROLES.ACCOUNTS, ROLES.ADMIN, ROLES.CASHFREE_APPROVER, ROLES.IDFC_APPROVER]}>
                             <DriveTrackList />
                           </ProtectedRoute>
                         }
@@ -129,33 +131,63 @@ function App() {
                       <Route
                         path="/reviews"
                         element={
-                          <ProtectedRoute requiredRoles={[ROLES.ACCOUNTS, ROLES.ADMIN]}>
+                          <ProtectedRoute requiredRoles={[ROLES.ACCOUNTS, ROLES.ADMIN, ROLES.CASHFREE_APPROVER, ROLES.IDFC_APPROVER]}>
                             <ReviewsList />
                           </ProtectedRoute>
                         }
                       />
 
-                      {/* Audit Log - Accounts and Admin */}
+                      {/* Invoice Detail Page */}
+                      <Route
+                        path="/invoice/:id"
+                        element={
+                          <ProtectedRoute requiredRoles={[ROLES.ACCOUNTS, ROLES.ADMIN, ROLES.CASHFREE_APPROVER, ROLES.IDFC_APPROVER, ROLES.VIEWER]}>
+                            <InvoiceDetail />
+                          </ProtectedRoute>
+                        }
+                      />
+
+                      {/* Vendor Ledger */}
+                      <Route
+                        path="/vendor-ledger"
+                        element={
+                          <ProtectedRoute requiredRoles={[ROLES.ACCOUNTS, ROLES.ADMIN, ROLES.CASHFREE_APPROVER, ROLES.IDFC_APPROVER]}>
+                            <VendorLedger />
+                          </ProtectedRoute>
+                        }
+                      />
+
+                      {/* Reports */}
+                      <Route
+                        path="/reports"
+                        element={
+                          <ProtectedRoute requiredRoles={[ROLES.ACCOUNTS, ROLES.ADMIN, ROLES.CASHFREE_APPROVER, ROLES.IDFC_APPROVER]}>
+                            <Reports />
+                          </ProtectedRoute>
+                        }
+                      />
+
+                      {/* Audit Log */}
                       <Route
                         path="/audit"
                         element={
-                          <ProtectedRoute requiredRoles={[ROLES.ACCOUNTS, ROLES.ADMIN]}>
+                          <ProtectedRoute requiredRoles={[ROLES.ACCOUNTS, ROLES.ADMIN, ROLES.CASHFREE_APPROVER, ROLES.IDFC_APPROVER]}>
                             <AuditLog />
                           </ProtectedRoute>
                         }
                       />
 
-                      {/* Admin Dashboard - Admin only */}
+                      {/* Admin Dashboard */}
                       <Route
                         path="/admin"
                         element={
-                          <ProtectedRoute requiredRoles={[ROLES.ADMIN]}>
+                          <ProtectedRoute requiredRoles={[ROLES.ADMIN, ROLES.IDFC_APPROVER]}>
                             <AdminDashboard />
                           </ProtectedRoute>
                         }
                       />
 
-                      {/* Catch all - redirect to dashboard */}
+                      {/* Catch all */}
                       <Route path="*" element={<Navigate to="/dashboard" replace />} />
                     </Routes>
                   </MainLayout>

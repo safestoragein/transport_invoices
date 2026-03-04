@@ -18,12 +18,10 @@ const useFilters = (data = [], options = {}) => {
 
   const { getModuleFilters, setModuleFilters } = useFilterContext();
 
-  // Initialize filters from context or defaults
+  // Always default to showing pending_approval entries on load
   const [filters, setFilters] = useState(() => {
-    if (persistFilters && moduleName) {
-      return getModuleFilters(moduleName);
-    }
-    return {};
+    const saved = (persistFilters && moduleName) ? getModuleFilters(moduleName) : {};
+    return { ...saved, paymentStatus: 'Pending' };
   });
 
   // Persist filters when they change
@@ -141,7 +139,19 @@ const useFilters = (data = [], options = {}) => {
         }
       }
 
-      // (Legacy manager/accounts approval filters removed — single-level workflow now)
+      // Payment status filter
+      if (filters.paymentStatus) {
+        if (Array.isArray(filters.paymentStatus) && filters.paymentStatus.length > 0) {
+          if (!filters.paymentStatus.includes(item.paymentStatus)) return false;
+        } else if (typeof filters.paymentStatus === 'string' && filters.paymentStatus !== '') {
+          if (item.paymentStatus !== filters.paymentStatus) return false;
+        }
+      }
+
+      // Management approval filter
+      if (filters.managerApproval && filters.managerApproval !== '') {
+        if (item.managerApproval !== filters.managerApproval) return false;
+      }
 
       // Vendor filter
       if (filters.vendor && filters.vendor !== '') {

@@ -43,10 +43,29 @@ const WeeklySummary = () => {
   // Calculate overall approval stats
   const approvalStats = useMemo(() => calculateApprovalStats(getAllEntries()), [getAllEntries]);
 
+  // Calculate pending and paid amounts
+  const amountStats = useMemo(() => {
+    const allEntries = getAllEntries();
+    const getAmount = (e) => e.invoiceAmount || e.payableAmount || e.refundAmount || e.amount || 0;
+    const sumAmount = (entries) => entries.reduce((sum, e) => sum + getAmount(e), 0);
+
+    const pending = allEntries.filter(e =>
+      e.status === 'pending_approval' || e.status === 'pending' ||
+      e.status === 'ready_for_upload' || e.status === 'approved' || e.status === 'awaiting_payment' ||
+      e.status === 'uploaded_to_bank' || e.status === 'uploaded_for_payment'
+    );
+    const paid = allEntries.filter(e => e.status === 'payment_done' || e.status === 'closed');
+
+    return {
+      totalPendingAmount: sumAmount(pending),
+      totalPaidAmount: sumAmount(paid),
+    };
+  }, [getAllEntries]);
+
   // Calculate grand totals
   const grandTotal = useMemo(() => {
     const total = Object.values(moduleStats).reduce((sum, stat) => sum + stat.totalAmount, 0);
-    return total - moduleStats.refunds.totalAmount; // Subtract refunds
+    return total - moduleStats.refunds.totalAmount;
   }, [moduleStats]);
 
   return (
@@ -95,25 +114,45 @@ const WeeklySummary = () => {
         />
       </StatCardGrid>
 
+      {/* Amount Summary */}
+      <StatCardGrid columns={2}>
+        <StatCard
+          title="Total Pending Amount"
+          value={amountStats.totalPendingAmount}
+          isCurrency
+          color="warning"
+        />
+        <StatCard
+          title="Total Paid Amount"
+          value={amountStats.totalPaidAmount}
+          isCurrency
+          color="success"
+        />
+      </StatCardGrid>
+
       {/* Approval Status */}
       <Card>
         <CardHeader title="Approval Pipeline" />
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="text-center p-4 bg-yellow-50 rounded-lg">
-            <p className="text-3xl font-bold text-yellow-600">{approvalStats.pendingApproval}</p>
-            <p className="text-sm text-gray-600">Pending Approval</p>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 sm:gap-4">
+          <div className="text-center p-3 sm:p-4 bg-yellow-50 rounded-lg overflow-hidden">
+            <p className="text-2xl sm:text-3xl font-bold text-yellow-600 truncate">{approvalStats.pendingApproval}</p>
+            <p className="text-xs sm:text-sm text-gray-600 truncate">Pending Approval</p>
           </div>
-          <div className="text-center p-4 bg-blue-50 rounded-lg">
-            <p className="text-3xl font-bold text-blue-600">{approvalStats.awaitingPayment}</p>
-            <p className="text-sm text-gray-600">Awaiting Payment</p>
+          <div className="text-center p-3 sm:p-4 bg-blue-50 rounded-lg overflow-hidden">
+            <p className="text-2xl sm:text-3xl font-bold text-blue-600 truncate">{approvalStats.readyForUpload}</p>
+            <p className="text-xs sm:text-sm text-gray-600 truncate">Ready for Upload</p>
           </div>
-          <div className="text-center p-4 bg-green-50 rounded-lg">
-            <p className="text-3xl font-bold text-green-600">{approvalStats.completed}</p>
-            <p className="text-sm text-gray-600">Completed</p>
+          <div className="text-center p-3 sm:p-4 bg-indigo-50 rounded-lg overflow-hidden">
+            <p className="text-2xl sm:text-3xl font-bold text-indigo-600 truncate">{approvalStats.uploadedToBank}</p>
+            <p className="text-xs sm:text-sm text-gray-600 truncate">Uploaded to Bank</p>
           </div>
-          <div className="text-center p-4 bg-red-50 rounded-lg">
-            <p className="text-3xl font-bold text-red-600">{approvalStats.rejected}</p>
-            <p className="text-sm text-gray-600">Rejected</p>
+          <div className="text-center p-3 sm:p-4 bg-green-50 rounded-lg overflow-hidden">
+            <p className="text-2xl sm:text-3xl font-bold text-green-600 truncate">{approvalStats.completed}</p>
+            <p className="text-xs sm:text-sm text-gray-600 truncate">Payment Done</p>
+          </div>
+          <div className="text-center p-3 sm:p-4 bg-red-50 rounded-lg overflow-hidden">
+            <p className="text-2xl sm:text-3xl font-bold text-red-600 truncate">{approvalStats.rejected}</p>
+            <p className="text-xs sm:text-sm text-gray-600 truncate">Rejected</p>
           </div>
         </div>
       </Card>
